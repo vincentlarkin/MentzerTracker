@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MentzerTracker</string>
+    <string name="app_description">Simple Mentzer-style A/B workout tracker.</string>
 </resources>

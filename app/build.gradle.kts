@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.example.mentzertracker"
+    namespace = "com.vincentlarkin.mentzertracker"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.mentzertracker"
+        applicationId = "com.vincentlarkin.mentzertracker"
         minSdk = 29
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -21,6 +21,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -32,7 +33,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "11"
+
     }
     buildFeatures {
         compose = true
@@ -45,28 +46,28 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation("com.google.code.gson:gson:2.13.2")
+    implementation(libs.gson)
 
 
     // Jetpack Compose (modern)
-    implementation("androidx.activity:activity-compose:1.11.0") // latest stable as of late 2025
-    implementation(platform("androidx.compose:compose-bom:2025.11.00"))
-    androidTestImplementation(platform("androidx.compose:compose-bom:2025.11.00"))
+    implementation(libs.androidx.activity.compose) // latest stable as of late 2025
+    implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
 
     // Compose UI + Material3 + Foundation
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-text")
-    implementation("androidx.compose.foundation:foundation")   // needed for KeyboardOptions
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material:material-icons-extended-android")
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.text)
+    implementation(libs.androidx.compose.foundation)   // needed for KeyboardOptions
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material.icons.extended.android)
 
 
     // Debug + testing tools
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
     // Unit + instrumentation tests
     testImplementation(libs.junit)
