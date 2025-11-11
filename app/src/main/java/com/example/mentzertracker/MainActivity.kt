@@ -4,39 +4,39 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,14 +55,21 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ExperimentalFoundationApi
 import com.example.mentzertracker.ui.theme.MentzerTrackerTheme
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,31 +82,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ---------- DATA MODELS ----------
+// ---------- UI-ONLY MODELS ----------
 
-data class Exercise(
-    val id: String,
-    val name: String
-)
-
-data class WorkoutTemplate(
-    val id: String,        // "A" or "B"
-    val name: String,      // "Workout A"
-    val exerciseIds: List<String>
-)
-
-data class ExerciseSetEntry(
-    val exerciseId: String,
-    val weight: Float,
-    val reps: Int
-)
-
-data class WorkoutLogEntry(
-    val id: Long,              // timestamp
-    val templateId: String,    // "A" or "B"
-    val date: String,
-    val sets: List<ExerciseSetEntry>
-)
+// Point used for graph + text list
 data class SessionPoint(
     val sessionIndex: Int,
     val date: String,
@@ -106,53 +92,106 @@ data class SessionPoint(
     val reps: Int
 )
 
+// ---------- SHARED PREFS KEYS / GSON ----------
 
-// ---------- HARD-CODED EXERCISES & TEMPLATES ----------
+private const val PREFS_NAME = "mentzer_prefs"
+private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
+private const val KEY_WORKOUT_LOGS = "workout_logs"
+private const val KEY_WORKOUT_CONFIG = "workout_config"
 
-val allExercises = listOf(
-    Exercise("squat", "Smith Squat"),
-    Exercise("deadlift", "Deadlift"),
-    Exercise("pulldown", "Close-Grip Palm-Up Pulldown"),
-    Exercise("incline_press", "Incline Press"),
-    Exercise("dips", "Dips")
-)
+private val gson = Gson()
 
-// Edit these however you want, but keep them as A / B
-val workoutA = WorkoutTemplate(
-    id = "A",
-    name = "Workout A",
-    exerciseIds = listOf("squat", "pulldown")
-)
+private fun hasSeenSplash(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getBoolean(KEY_HAS_SEEN_SPLASH, false)
+}
 
-val workoutB = WorkoutTemplate(
-    id = "B",
-    name = "Workout B",
-    exerciseIds = listOf("deadlift", "incline_press", "dips")
-)
+private fun setHasSeenSplash(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit().putBoolean(KEY_HAS_SEEN_SPLASH, true).apply()
+}
 
-val templates = listOf(workoutA, workoutB)
+private fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val json = prefs.getString(KEY_WORKOUT_LOGS, null) ?: return emptyList()
+    return try {
+        val type = object : TypeToken<List<WorkoutLogEntry>>() {}.type
+        gson.fromJson<List<WorkoutLogEntry>>(json, type) ?: emptyList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val json = gson.toJson(logs)
+    prefs.edit().putString(KEY_WORKOUT_LOGS, json).apply()
+}
+
+private fun hasWorkoutConfig(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_WORKOUT_CONFIG, null) != null
+}
+
+private fun loadWorkoutConfig(context: Context): UserWorkoutConfig {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val json = prefs.getString(KEY_WORKOUT_CONFIG, null) ?: return defaultWorkoutConfig
+    return try {
+        gson.fromJson(json, UserWorkoutConfig::class.java) ?: defaultWorkoutConfig
+    } catch (_: Exception) {
+        defaultWorkoutConfig
+    }
+}
+
+private fun saveWorkoutConfig(context: Context, config: UserWorkoutConfig) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val json = gson.toJson(config)
+    prefs.edit().putString(KEY_WORKOUT_CONFIG, json).apply()
+}
+
+// ---------- ROOT / FLOW CONTROL ----------
 
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
 
-    // Initialize from SharedPreferences once
-    var showSplash by remember {
-        mutableStateOf(!hasSeenSplash(context))
-    }
+    var showSplash by remember { mutableStateOf(!hasSeenSplash(context)) }
+    var workoutConfig by remember { mutableStateOf(loadWorkoutConfig(context)) }
+    var hasConfig by remember { mutableStateOf(hasWorkoutConfig(context)) }
 
-    if (showSplash) {
-        SplashScreen(
-            onStart = {
-                setHasSeenSplash(context)
-                showSplash = false
-            }
-        )
-    } else {
-        WorkoutTrackerApp()
+    when {
+        showSplash -> {
+            SplashScreen(
+                onStart = {
+                    setHasSeenSplash(context)
+                    showSplash = false
+                }
+            )
+        }
+
+        !hasConfig -> {
+            WorkoutBuilderScreen(
+                initialConfig = workoutConfig,
+                onDone = { newConfig ->
+                    workoutConfig = newConfig
+                    saveWorkoutConfig(context, newConfig)
+                    hasConfig = true
+                }
+            )
+        }
+
+        else -> {
+            WorkoutTrackerApp(
+                config = workoutConfig,
+                onEditWorkouts = {
+                    hasConfig = false
+                }
+            )
+        }
     }
 }
 
+// ---------- SCREENS ----------
 
 @Composable
 fun SplashScreen(onStart: () -> Unit) {
@@ -173,7 +212,8 @@ fun SplashScreen(onStart: () -> Unit) {
             )
             Text(
                 text = "Welcome to MentzerTracker.\nTrack your A/B workouts Mentzer-style.",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
             )
             Button(onClick = onStart) {
                 Text("Start")
@@ -182,23 +222,173 @@ fun SplashScreen(onStart: () -> Unit) {
     }
 }
 
+/**
+ * Simple one-screen builder:
+ * - Scrollable list of checkboxes for Workout A
+ * - Scrollable list of checkboxes for Workout B
+ * - Must pick at least 2 for each
+ */
+@Composable
+fun WorkoutBuilderScreen(
+    initialConfig: UserWorkoutConfig,
+    onDone: (UserWorkoutConfig) -> Unit
+) {
+    val scrollState = rememberScrollState()
 
-// ---------- TOP-LEVEL UI ----------
+    // Start from whatever config we have (default or saved)
+    val allIds = allExercises.map { it.id }
+    val initialA = initialConfig.workoutAExerciseIds.toSet()
+    val initialB = initialConfig.workoutBExerciseIds.toSet()
+
+    val aSelections = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            allIds.forEach { id -> this[id] = id in initialA }
+        }
+    }
+    val bSelections = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            allIds.forEach { id -> this[id] = id in initialB }
+        }
+    }
+
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            "Build your A / B workouts",
+            style = MaterialTheme.typography.titleLarge
+        )
+        Text(
+            "Pick at least 2 exercises for each workout. " +
+                    "You can reuse an exercise in both A and B if you want.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        // Workout A
+        Text("Workout A", style = MaterialTheme.typography.titleMedium)
+        allExercises.forEach { ex ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = aSelections[ex.id] == true,
+                    onCheckedChange = { checked -> aSelections[ex.id] = checked }
+                )
+                Text(ex.name)
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Workout B
+        Text("Workout B", style = MaterialTheme.typography.titleMedium)
+        allExercises.forEach { ex ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = bSelections[ex.id] == true,
+                    onCheckedChange = { checked -> bSelections[ex.id] = checked }
+                )
+                Text(ex.name)
+            }
+        }
+
+        if (errorText != null) {
+            Text(
+                text = errorText!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        Button(
+            onClick = {
+                val aIds = aSelections.filterValues { it }.keys.toList()
+                val bIds = bSelections.filterValues { it }.keys.toList()
+
+                when {
+                    aIds.size < 2 ->
+                        errorText = "Please pick at least 2 exercises for Workout A."
+                    bIds.size < 2 ->
+                        errorText = "Please pick at least 2 exercises for Workout B."
+                    else -> {
+                        errorText = null
+                        onDone(
+                            UserWorkoutConfig(
+                                workoutAExerciseIds = aIds,
+                                workoutBExerciseIds = bIds
+                            )
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        ) {
+            Text("Save workouts")
+        }
+    }
+}
+
+// ---------- MAIN TRACKER APP ----------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutTrackerApp() {
+fun WorkoutTrackerApp(
+    config: UserWorkoutConfig,
+    onEditWorkouts: () -> Unit
+) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     var selectedTemplateId by remember { mutableStateOf("A") }
 
-    // In-memory list of workout logs
-    val logEntries = remember { mutableStateListOf<WorkoutLogEntry>() }
+    // Build templates from current config
+    val templates = remember(config) {
+        listOf(
+            WorkoutTemplate(
+                id = "A",
+                name = "Workout A",
+                exerciseIds = config.workoutAExerciseIds
+            ),
+            WorkoutTemplate(
+                id = "B",
+                name = "Workout B",
+                exerciseIds = config.workoutBExerciseIds
+            )
+        )
+    }
 
-    val currentTemplate = templates.first { it.id == selectedTemplateId }
+    // Load saved logs once, then keep in memory
+    val logEntries = remember {
+        mutableStateListOf<WorkoutLogEntry>().apply {
+            addAll(loadWorkoutLogs(context))
+        }
+    }
+
+    var showAbout by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mentzer A/B Tracker") }
+                title = { Text("Mentzer A/B Tracker") },
+                actions = {
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "About MentzerTracker"
+                        )
+                    }
+                }
             )
         }
     ) { padding ->
@@ -210,8 +400,12 @@ fun WorkoutTrackerApp() {
         ) {
             TemplateSelector(
                 selectedTemplateId = selectedTemplateId,
-                onTemplateSelected = { selectedTemplateId = it }
+                templates = templates,
+                onTemplateSelected = { selectedTemplateId = it },
+                onEditWorkouts = onEditWorkouts
             )
+
+            val currentTemplate = templates.first { it.id == selectedTemplateId }
 
             LogWorkoutSection(
                 template = currentTemplate,
@@ -224,6 +418,7 @@ fun WorkoutTrackerApp() {
                         sets = sets
                     )
                     logEntries.add(entry)
+                    saveWorkoutLogs(context, logEntries)
                 }
             )
 
@@ -233,6 +428,27 @@ fun WorkoutTrackerApp() {
             )
         }
     }
+
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text("MentzerTracker") },
+            text = { Text("Vincent L · 2025") },
+            confirmButton = {
+                TextButton(onClick = {
+                    uriHandler.openUri("https://github.com/VincentW2/MentzerTracker")
+                    showAbout = false
+                }) {
+                    Text("GitHub")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAbout = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 }
 
 // ---------- TEMPLATE SELECTOR (A / B) ----------
@@ -240,25 +456,33 @@ fun WorkoutTrackerApp() {
 @Composable
 fun TemplateSelector(
     selectedTemplateId: String,
-    onTemplateSelected: (String) -> Unit
+    templates: List<WorkoutTemplate>,
+    onTemplateSelected: (String) -> Unit,
+    onEditWorkouts: () -> Unit
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        templates.forEach { template ->
-            val isSelected = template.id == selectedTemplateId
-            if (isSelected) {
-                Button(onClick = { onTemplateSelected(template.id) }) {
-                    Text(template.name)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = { onTemplateSelected(template.id) },
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                ) {
-                    Text(template.name)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            templates.forEach { template ->
+                val isSelected = template.id == selectedTemplateId
+                if (isSelected) {
+                    Button(onClick = { onTemplateSelected(template.id) }) {
+                        Text(template.name)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onTemplateSelected(template.id) },
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text(template.name)
+                    }
                 }
             }
+        }
+
+        TextButton(onClick = onEditWorkouts) {
+            Text("Edit workouts")
         }
     }
 }
@@ -271,15 +495,13 @@ fun LogWorkoutSection(
     template: WorkoutTemplate,
     onSave: (List<ExerciseSetEntry>) -> Unit
 ) {
-    Text("Log ${template.name}", style = MaterialTheme.typography.titleMedium)
-
-    // Per-exercise fields
     val weightState = remember { mutableStateMapOf<String, String>() }
     val repsState = remember { mutableStateMapOf<String, String>() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         template.exerciseIds.forEach { exerciseId ->
-            val exercise = allExercises.first { it.id == exerciseId }
+            val exercise = allExercises.firstOrNull { it.id == exerciseId }
+                ?: return@forEach
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -307,7 +529,6 @@ fun LogWorkoutSection(
                     modifier = Modifier.width(80.dp),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-
                 )
             }
         }
@@ -327,7 +548,6 @@ fun LogWorkoutSection(
                 }
                 if (sets.isNotEmpty()) {
                     onSave(sets)
-                    // Clear fields after save
                     template.exerciseIds.forEach { id ->
                         weightState[id] = ""
                         repsState[id] = ""
@@ -341,7 +561,7 @@ fun LogWorkoutSection(
     }
 }
 
-// ---------- SIMPLE PROGRESS VIEW ----------
+// ---------- PROGRESS: DROPDOWN + SWIPEABLE GRAPH/LIST ----------
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -356,34 +576,35 @@ fun ProgressSection(
         return
     }
 
-    // Build history per exercise: (session index, date, weight)
-    val histories = remember(logs) {
+    val histories: Map<Exercise, List<SessionPoint>> =
         exercises.associateWith { ex ->
-            logs
-                .flatMapIndexed { index, log ->
-                    log.sets
-                        .filter { it.exerciseId == ex.id }
-                        .map { setEntry ->
-                            Triple(index + 1, log.date, setEntry.weight)
-                        }
-                }
+            logs.flatMapIndexed { index, log ->
+                log.sets
+                    .filter { it.exerciseId == ex.id }
+                    .map { setEntry ->
+                        SessionPoint(
+                            sessionIndex = index + 1,
+                            date = log.date,
+                            weight = setEntry.weight,
+                            reps = setEntry.reps
+                        )
+                    }
+            }
         }.filterValues { it.isNotEmpty() }
-    }
 
     if (histories.isEmpty()) {
         Text("No data for any exercises yet.")
         return
     }
 
-    // Default to first exercise that actually has history
     var selectedExercise by remember { mutableStateOf(histories.keys.first()) }
 
-    // If selected exercise loses data (edge case), fall back
     if (!histories.containsKey(selectedExercise)) {
         selectedExercise = histories.keys.first()
     }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
+    val scope = rememberCoroutineScope()
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ExerciseDropdown(
@@ -394,11 +615,12 @@ fun ProgressSection(
 
         Spacer(Modifier.height(4.dp))
 
-        // Card containing pager: Graph | Text
+        val history = histories[selectedExercise] ?: emptyList()
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(260.dp),
+                .height(320.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
@@ -409,7 +631,6 @@ fun ProgressSection(
                     .fillMaxSize()
                     .padding(8.dp)
             ) {
-                // Small header showing which page you're on
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -420,49 +641,57 @@ fun ProgressSection(
                         style = MaterialTheme.typography.titleSmall
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         val isGraph = pagerState.currentPage == 0
-                        Icon(
-                            imageVector = Icons.Default.BarChart,
-                            contentDescription = "Graph",
-                            tint = if (isGraph)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                        Icon(
-                            imageVector = Icons.Default.List,
-                            contentDescription = "List",
-                            tint = if (!isGraph)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
+
+                        IconButton(
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(0) }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.BarChart,
+                                contentDescription = "Graph view",
+                                tint = if (isGraph)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(1) }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.List,
+                                contentDescription = "List view",
+                                tint = if (!isGraph)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(4.dp))
-
-                val history = histories[selectedExercise] ?: emptyList()
 
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     when (page) {
-                        0 -> ExerciseLineChart(
-                            history = history
-                        )
-
-                        1 -> ExerciseHistoryList(
-                            history = history
-                        )
+                        0 -> ExerciseGraphPage(history = history)
+                        1 -> ExerciseHistoryList(history = history)
                     }
                 }
             }
         }
     }
 }
+
 @Composable
 fun ExerciseDropdown(
     exercisesWithHistory: List<Exercise>,
@@ -482,7 +711,7 @@ fun ExerciseDropdown(
             textAlign = TextAlign.Start
         )
         Icon(
-            imageVector = Icons.Default.ArrowDropDown,
+            imageVector = Icons.Filled.ArrowDropDown,
             contentDescription = "Choose exercise"
         )
     }
@@ -502,9 +731,58 @@ fun ExerciseDropdown(
         }
     }
 }
+
+@Composable
+fun ExerciseGraphPage(
+    history: List<SessionPoint>
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        ExerciseLineChart(
+            history = history,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        if (history.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(history) { point ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = friendlyDate(point.date),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            text = "${point.weight.toInt()} lbs",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${point.reps} rep" +
+                                    if (point.reps == 1) "" else "s",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- GRAPH + TEXT LIST IMPLEMENTATIONS ----------
+
 @Composable
 fun ExerciseLineChart(
-    history: List<Triple<Int, String, Float>>,
+    history: List<SessionPoint>,
     modifier: Modifier = Modifier
 ) {
     if (history.isEmpty()) {
@@ -520,8 +798,7 @@ fun ExerciseLineChart(
     val primary = MaterialTheme.colorScheme.primary
     val fillColor = primary.copy(alpha = 0.25f)
 
-    // Normalize data
-    val weights = history.map { it.third }
+    val weights = history.map { it.weight }
     val minWeight = weights.minOrNull() ?: 0f
     val maxWeight = weights.maxOrNull() ?: 0f
     val range = (maxWeight - minWeight).takeIf { it > 0f } ?: 1f
@@ -544,16 +821,14 @@ fun ExerciseLineChart(
 
         val stepX = if (history.size == 1) 0f else usableWidth / (history.size - 1)
 
-        // Map points
-        val points = history.mapIndexed { index, triple ->
-            val weight = triple.third
+        val points = history.mapIndexed { index, point ->
+            val weight = point.weight
             val x = leftPadding + stepX * index
             val normalized = (weight - minWeight) / range
             val y = topPadding + (1f - normalized) * usableHeight
             Offset(x, y)
         }
 
-        // Draw axis (simple baseline)
         val axisY = topPadding + usableHeight
         drawLine(
             color = Color.Gray.copy(alpha = 0.6f),
@@ -563,7 +838,6 @@ fun ExerciseLineChart(
         )
 
         if (points.size >= 2) {
-            // Line path
             val linePath = Path().apply {
                 moveTo(points.first().x, points.first().y)
                 for (i in 1 until points.size) {
@@ -571,7 +845,6 @@ fun ExerciseLineChart(
                 }
             }
 
-            // Fill path (area under the line)
             val fillPath = Path().apply {
                 moveTo(points.first().x, axisY)
                 for (pt in points) {
@@ -597,7 +870,6 @@ fun ExerciseLineChart(
             )
         }
 
-        // Draw circles at each point
         points.forEach { pt ->
             drawCircle(
                 color = primary,
@@ -612,9 +884,10 @@ fun ExerciseLineChart(
         }
     }
 }
+
 @Composable
 fun ExerciseHistoryList(
-    history: List<Triple<Int, String, Float>>,
+    history: List<SessionPoint>,
     modifier: Modifier = Modifier
 ) {
     if (history.isEmpty()) {
@@ -631,21 +904,24 @@ fun ExerciseHistoryList(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        items(history) { (index, date, weight) ->
-            Text("Session $index ($date): ${weight} lbs")
+        items(history) { point ->
+            Text(
+                "Session ${point.sessionIndex} (${point.date}): " +
+                        "${point.weight} lbs × ${point.reps} reps"
+            )
         }
     }
 }
 
-private const val PREFS_NAME = "mentzer_prefs"
-private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
+// ---------- DATE HELPER ----------
 
-private fun hasSeenSplash(context: Context): Boolean {
-    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    return prefs.getBoolean(KEY_HAS_SEEN_SPLASH, false)
-}
-
-private fun setHasSeenSplash(context: Context) {
-    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit().putBoolean(KEY_HAS_SEEN_SPLASH, true).apply()
+private fun friendlyDate(dateStr: String): String {
+    return try {
+        val inFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val outFmt = SimpleDateFormat("MMM d", Locale.getDefault())
+        val date = inFmt.parse(dateStr)
+        if (date != null) outFmt.format(date) else dateStr
+    } catch (_: Exception) {
+        dateStr
+    }
 }
