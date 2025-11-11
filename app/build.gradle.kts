@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.mentzertracker"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.mentzertracker"
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -40,21 +40,32 @@ android {
 }
 
 dependencies {
+    // Core Android + lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
-    implementation("androidx.activity:activity-compose:1.8.0")
-    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+
+    // Jetpack Compose (modern)
+    implementation("androidx.activity:activity-compose:1.11.0") // latest stable as of late 2025
+    implementation(platform("androidx.compose:compose-bom:2025.11.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.11.00"))
+
+    // Compose UI + Material3 + Foundation
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.ui:ui-text")
+    implementation("androidx.compose.foundation:foundation")   // needed for KeyboardOptions
     implementation("androidx.compose.material3:material3")
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.compose.ui:ui-tooling-preview")
+
+    // Debug + testing tools
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+
+    // Unit + instrumentation tests
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

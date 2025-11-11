@@ -4,9 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -16,26 +23,33 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.mentzertracker.ui.theme.MentzerTrackerTheme
+import androidx.compose.foundation.layout.Box
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
-                WorkoutTrackerApp()
+            MentzerTrackerTheme {
+                AppRoot()
             }
         }
     }
@@ -91,6 +105,57 @@ val workoutB = WorkoutTemplate(
 )
 
 val templates = listOf(workoutA, workoutB)
+
+@Composable
+fun AppRoot() {
+    val context = LocalContext.current
+
+    // Initialize from SharedPreferences once
+    var showSplash by remember {
+        mutableStateOf(!hasSeenSplash(context))
+    }
+
+    if (showSplash) {
+        SplashScreen(
+            onStart = {
+                setHasSeenSplash(context)
+                showSplash = false
+            }
+        )
+    } else {
+        WorkoutTrackerApp()
+    }
+}
+
+
+@Composable
+fun SplashScreen(onStart: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Text(
+                text = "MentzerTracker",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Welcome to MentzerTracker.\nTrack your A/B workouts Mentzer-style.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Button(onClick = onStart) {
+                Text("Start")
+            }
+        }
+    }
+}
+
 
 // ---------- TOP-LEVEL UI ----------
 
@@ -205,7 +270,8 @@ fun LogWorkoutSection(
                     onValueChange = { weightState[exerciseId] = it },
                     label = { Text("lbs") },
                     modifier = Modifier.width(80.dp),
-                    singleLine = true
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
 
                 OutlinedTextField(
@@ -213,7 +279,9 @@ fun LogWorkoutSection(
                     onValueChange = { repsState[exerciseId] = it },
                     label = { Text("reps") },
                     modifier = Modifier.width(80.dp),
-                    singleLine = true
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+
                 )
             }
         }
@@ -283,4 +351,16 @@ fun ProgressSection(
             }
         }
     }
+}
+private const val PREFS_NAME = "mentzer_prefs"
+private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
+
+private fun hasSeenSplash(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getBoolean(KEY_HAS_SEEN_SPLASH, false)
+}
+
+private fun setHasSeenSplash(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit().putBoolean(KEY_HAS_SEEN_SPLASH, true).apply()
 }
