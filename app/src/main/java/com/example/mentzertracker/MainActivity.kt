@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
@@ -218,12 +219,14 @@ fun AppRoot(
     var workoutConfig by remember { mutableStateOf(loadWorkoutConfig(context)) }
     var hasConfig by remember { mutableStateOf(hasWorkoutConfig(context)) }
     var editingConfig by remember { mutableStateOf(false) }
-    // If we're editing an existing config, back should go to main screen
+
+    // If we're editing an existing config, back should return to main screen
     if (editingConfig && hasConfig) {
         BackHandler {
             editingConfig = false
         }
     }
+
     when {
         showSplash -> {
             SplashScreen(
@@ -243,7 +246,10 @@ fun AppRoot(
                     saveWorkoutConfig(context, newConfig)
                     hasConfig = true
                     editingConfig = false
-                }
+                },
+                showBack = editingConfig && hasConfig,
+                onBack = { editingConfig = false },
+                onOpenSettings = onOpenSettings
             )
         }
 
@@ -259,6 +265,7 @@ fun AppRoot(
 
 
 
+
 // ---------- SCREENS ----------
 
 @Composable
@@ -269,21 +276,21 @@ fun SplashScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)   // <- force our theme bg
             .padding(24.dp)
     ) {
-        // settings icon top-right
+        // settings top-right
         IconButton(
             onClick = onOpenSettings,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
+            modifier = Modifier.align(Alignment.TopEnd)
         ) {
             Icon(
-                imageVector = Icons.Filled.Settings, // Corrected from .Settings
-                contentDescription = "Settings"
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onBackground
             )
         }
 
-        // existing center content
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -297,7 +304,8 @@ fun SplashScreen(
             Text(
                 text = "Welcome to MentzerTracker.\nTrack your A/B workouts Mentzer-style.",
                 style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground
             )
             Button(onClick = onStart) {
                 Text("Start")
@@ -308,16 +316,21 @@ fun SplashScreen(
 
 
 
+
 /**
  * Simple one-screen builder:
  * - Scrollable list of checkboxes for Workout A
  * - Scrollable list of checkboxes for Workout B
  * - Must pick at least 2 for each
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutBuilderScreen(
     initialConfig: UserWorkoutConfig,
-    onDone: (UserWorkoutConfig) -> Unit
+    onDone: (UserWorkoutConfig) -> Unit,
+    showBack: Boolean = false,
+    onBack: (() -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
 
@@ -338,119 +351,144 @@ fun WorkoutBuilderScreen(
 
     var errorText by remember { mutableStateOf<String?>(null) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)   // <- important
-            .padding(16.dp)
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Title + description
-        Text(
-            "Build your A / B workouts",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            "Pick at least 2 exercises for each workout. You can reuse an exercise in both A and B if you want.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        // Workout A section
-        Text(
-            "Workout A",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        allExercises.forEach { ex ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Checkbox(
-                    checked = aSelections[ex.id] == true,
-                    onCheckedChange = { checked -> aSelections[ex.id] = checked },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.outline,
-                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-                Text(
-                    ex.name,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // Workout B section
-        Text(
-            "Workout B",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        allExercises.forEach { ex ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Checkbox(
-                    checked = bSelections[ex.id] == true,
-                    onCheckedChange = { checked -> bSelections[ex.id] = checked },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.outline,
-                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-                Text(
-                    ex.name,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-        }
-
-        if (errorText != null) {
-            Text(
-                text = errorText!!,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        Button(
-            onClick = {
-                val aIds = aSelections.filterValues { it }.keys.toList()
-                val bIds = bSelections.filterValues { it }.keys.toList()
-
-                when {
-                    aIds.size < 2 ->
-                        errorText = "Please pick at least 2 exercises for Workout A."
-                    bIds.size < 2 ->
-                        errorText = "Please pick at least 2 exercises for Workout B."
-                    else -> {
-                        errorText = null
-                        onDone(
-                            UserWorkoutConfig(
-                                workoutAExerciseIds = aIds,
-                                workoutBExerciseIds = bIds
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Build your A / B workouts") },
+                navigationIcon = {
+                    if (showBack && onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
                             )
-                        )
+                        }
+                    }
+                },
+                actions = {
+                    if (onOpenSettings != null) {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "Settings"
+                            )
+                        }
                     }
                 }
-            },
+            )
+        }
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(padding)          // respects notch / status bar
+                .padding(16.dp)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Save workouts")
+            Text(
+                "Pick at least 2 exercises for each workout. You can reuse an exercise in both A and B if you want.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            // Workout A section
+            Text(
+                "Workout A",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            allExercises.forEach { ex ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = aSelections[ex.id] == true,
+                        onCheckedChange = { checked -> aSelections[ex.id] = checked },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MaterialTheme.colorScheme.primary,
+                            uncheckedColor = MaterialTheme.colorScheme.outline,
+                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                    Text(
+                        ex.name,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Workout B section
+            Text(
+                "Workout B",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            allExercises.forEach { ex ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = bSelections[ex.id] == true,
+                        onCheckedChange = { checked -> bSelections[ex.id] = checked },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MaterialTheme.colorScheme.primary,
+                            uncheckedColor = MaterialTheme.colorScheme.outline,
+                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                    Text(
+                        ex.name,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+
+            if (errorText != null) {
+                Text(
+                    text = errorText!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            Button(
+                onClick = {
+                    val aIds = aSelections.filterValues { it }.keys.toList()
+                    val bIds = bSelections.filterValues { it }.keys.toList()
+
+                    when {
+                        aIds.size < 2 ->
+                            errorText = "Please pick at least 2 exercises for Workout A."
+                        bIds.size < 2 ->
+                            errorText = "Please pick at least 2 exercises for Workout B."
+                        else -> {
+                            errorText = null
+                            onDone(
+                                UserWorkoutConfig(
+                                    workoutAExerciseIds = aIds,
+                                    workoutBExerciseIds = bIds
+                                )
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
+                Text("Save workouts")
+            }
         }
     }
 }
+
+
 
 
 // ---------- MAIN TRACKER APP (INCLUDING FULL PROGRESS NAV) ----------
@@ -630,9 +668,11 @@ fun LogWorkoutSection(
     template: WorkoutTemplate,
     onSave: (List<ExerciseSetEntry>) -> Unit
 ) {
+    Text("Log ${template.name}", style = MaterialTheme.typography.titleMedium)
+
     val weightState = remember { mutableStateMapOf<String, String>() }
     val repsState = remember { mutableStateMapOf<String, String>() }
-
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         template.exerciseIds.forEach { exerciseId ->
             val exercise = allExercises.firstOrNull { it.id == exerciseId }
@@ -650,7 +690,11 @@ fun LogWorkoutSection(
 
                 OutlinedTextField(
                     value = weightState[exerciseId] ?: "",
-                    onValueChange = { weightState[exerciseId] = it },
+                    onValueChange = { input ->
+                        // allow digits + decimal point
+                        val filtered = input.filter { it.isDigit() || it == '.' }
+                        weightState[exerciseId] = filtered
+                    },
                     label = { Text("lbs") },
                     modifier = Modifier.width(80.dp),
                     singleLine = true,
@@ -659,7 +703,11 @@ fun LogWorkoutSection(
 
                 OutlinedTextField(
                     value = repsState[exerciseId] ?: "",
-                    onValueChange = { repsState[exerciseId] = it },
+                    onValueChange = { input ->
+                        // digits only
+                        val filtered = input.filter { it.isDigit() }
+                        repsState[exerciseId] = filtered
+                    },
                     label = { Text("reps") },
                     modifier = Modifier.width(80.dp),
                     singleLine = true,
@@ -670,19 +718,36 @@ fun LogWorkoutSection(
 
         Button(
             onClick = {
-                val sets = template.exerciseIds.mapNotNull { id ->
-                    val w = weightState[id]?.toFloatOrNull()
-                    val r = repsState[id]?.toIntOrNull()
-                    if (w != null && r != null) {
-                        ExerciseSetEntry(
-                            exerciseId = id,
-                            weight = w,
-                            reps = r
+                var hasError = false
+                val sets = mutableListOf<ExerciseSetEntry>()
+
+                template.exerciseIds.forEach { id ->
+                    val wStr = weightState[id]?.trim().orEmpty()
+                    val rStr = repsState[id]?.trim().orEmpty()
+                    val w = wStr.toFloatOrNull()
+                    val r = rStr.toIntOrNull()
+
+                    if (wStr.isEmpty() || rStr.isEmpty() || w == null || r == null) {
+                        hasError = true
+                    } else {
+                        sets.add(
+                            ExerciseSetEntry(
+                                exerciseId = id,
+                                weight = w,
+                                reps = r
+                            )
                         )
-                    } else null
+                    }
                 }
-                if (sets.isNotEmpty()) {
+
+                if (hasError || sets.isEmpty()) {
+                    errorMessage =
+                        "Please enter numeric weight and reps for all exercises before saving."
+                } else {
+                    errorMessage = null
                     onSave(sets)
+
+                    // Clear fields after save
                     template.exerciseIds.forEach { id ->
                         weightState[id] = ""
                         repsState[id] = ""
@@ -692,6 +757,15 @@ fun LogWorkoutSection(
             modifier = Modifier.padding(top = 8.dp)
         ) {
             Text("Save session")
+        }
+
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }

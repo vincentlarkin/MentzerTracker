@@ -1,7 +1,7 @@
 package com.example.mentzertracker
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +15,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -29,11 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
 
 // UI model used only on the full-screen screen
@@ -202,46 +206,74 @@ fun FullProgressScreen(
  * Read-only text field that opens a native DatePicker dialog.
  * No keyboard, just tap → pick date.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DateTextField(
     dateState: MutableState<String>,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    val calendar = remember { Calendar.getInstance() }
+    var showPicker by remember { mutableStateOf(false) }
 
-    fun openPicker() {
-        try {
-            val parsed = formatter.parse(dateState.value)
-            if (parsed != null) calendar.time = parsed
-        } catch (_: Exception) { /* ignore */ }
+    val datePickerState = rememberDatePickerState()
 
-        val year = calendar.get(Calendar.YEAR)
-        val month = calendar.get(Calendar.MONTH)
-        val day = calendar.get(Calendar.DAY_OF_MONTH)
-
+    if (showPicker) {
         DatePickerDialog(
-            context,
-            { _, y, m, d ->
-                calendar.set(y, m, d)
-                dateState.value = formatter.format(calendar.time)
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val millis = datePickerState.selectedDateMillis
+                        if (millis != null) {
+                            dateState.value = formatter.format(millis)
+                        }
+                        showPicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
             },
-            year,
-            month,
-            day
-        ).show()
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 
-    OutlinedTextField(
-        value = dateState.value,
-        onValueChange = {}, // readOnly
-        modifier = modifier.clickable { openPicker() },
-        label = { Text("Date") },
-        singleLine = true,
-        readOnly = true
-    )
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(modifier = modifier) {
+        // Let the text field pick its own height
+        OutlinedTextField(
+            value = dateState.value,
+            onValueChange = { },      // read-only
+            readOnly = true,
+            singleLine = true,
+            label = { Text("Date") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Transparent overlay that actually handles taps
+        Box(
+            // The 'matchParentSize' modifier is an extension on BoxScope,
+            // which is the context provided by the parent Box.
+            // This should now resolve correctly.
+            modifier = Modifier
+                .matchParentSize() // This line was causing the error
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null
+                ) {
+                    showPicker = true
+                }
+        )
+    }
 }
+
+
 
 /**
  * Apply edits from the full-screen editor back into the logs list.
