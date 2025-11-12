@@ -3,8 +3,10 @@ package com.vincentlarkin.mentzertracker
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -34,11 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,24 +67,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import android.graphics.Color as AndroidColor
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.SystemBarStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -131,9 +126,9 @@ private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
 private const val KEY_WORKOUT_LOGS = "workout_logs"
 private const val KEY_WORKOUT_CONFIG = "workout_config"
 
-private val gson = Gson()
+internal val gson = Gson()
 
-private fun hasSeenSplash(context: Context): Boolean {
+internal fun hasSeenSplash(context: Context): Boolean {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     return prefs.getBoolean(KEY_HAS_SEEN_SPLASH, false)
 }
@@ -143,7 +138,7 @@ private fun setHasSeenSplash(context: Context) {
     prefs.edit { putBoolean(KEY_HAS_SEEN_SPLASH, true) }
 }
 
-private fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
+internal fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = prefs.getString(KEY_WORKOUT_LOGS, null) ?: return emptyList()
     return try {
@@ -165,7 +160,7 @@ private fun hasWorkoutConfig(context: Context): Boolean {
     return prefs.getString(KEY_WORKOUT_CONFIG, null) != null
 }
 
-private fun loadWorkoutConfig(context: Context): UserWorkoutConfig {
+internal fun loadWorkoutConfig(context: Context): UserWorkoutConfig {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = prefs.getString(KEY_WORKOUT_CONFIG, null) ?: return defaultWorkoutConfig
     return try {
@@ -219,14 +214,8 @@ fun MentzerApp() {
     val resetKey = resetKeyState.value
 
     MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
-        key(resetKey) {
-            AppRoot(
-                onOpenSettings = { showSettingsState.value = true }
-            )
-        }
-
         if (showSettings) {
-            SettingsDialog(
+            SettingsScreen(
                 themeMode = themeMode,
                 onThemeModeChange = { newMode ->
                     themeModeState.value = newMode
@@ -238,8 +227,14 @@ fun MentzerApp() {
                     resetKeyState.value = resetKeyState.value + 1
                     showSettingsState.value = false
                 },
-                onDismiss = { showSettingsState.value = false }
+                onBack = { showSettingsState.value = false }
             )
+        } else {
+            key(resetKey) {
+                AppRoot(
+                    onOpenSettings = { showSettingsState.value = true }
+                )
+            }
         }
     }
 }
@@ -1064,126 +1059,6 @@ fun ExerciseGraphPage(
         }
     }
 }
-@Composable
-fun SettingsDialog(
-    themeMode: ThemeMode,
-    onThemeModeChange: (ThemeMode) -> Unit,
-    onResetData: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val uriHandler = LocalUriHandler.current
-    val showResetConfirmState = remember { mutableStateOf(false) }
-    val showResetConfirm = showResetConfirmState.value
-    val isDarkMode = themeMode == ThemeMode.DARK
-
-    if (showResetConfirm) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirmState.value = false },
-            title = { Text("Reset data?") },
-            text = {
-                Text(
-                    "This will delete your saved workouts, logs, and splash preferences. " +
-                            "You can configure everything again after the reset."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showResetConfirmState.value = false
-                        onResetData()
-                    },
-                    shape = RectangleShape
-                ) {
-                    Text("Reset")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showResetConfirmState.value = false },
-                    shape = RectangleShape
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Settings") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = "App info"
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Vincent L · 2025", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "MentzerTracker is a small app inspired by Mike Mentzer's " +
-                                    "heavy-duty training principles."
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Theme")
-                    IconButton(
-                        onClick = {
-                            val newMode =
-                                if (themeMode == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK
-                            onThemeModeChange(newMode)
-                        },
-                        modifier = Modifier.clip(RectangleShape)
-                    ) {
-                        if (isDarkMode) {
-                            Icon(
-                                imageVector = Icons.Filled.DarkMode,
-                                contentDescription = "Dark mode"
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Filled.LightMode,
-                                contentDescription = "Light mode"
-                            )
-                        }
-                    }
-                }
-
-                Button(
-                    onClick = { showResetConfirmState.value = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RectangleShape
-                ) {
-                    Text("Reset data")
-                }
-
-                TextButton(
-                    onClick = { uriHandler.openUri("https://github.com/VincentW2/MentzerTracker") },
-                    modifier = Modifier.align(Alignment.End),
-                    shape = RectangleShape
-                ) {
-                    Text("GitHub")
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss, shape = RectangleShape) {
-                Text("Close")
-            }
-        }
-    )
-}
-
 
 // ---------- GRAPH + TEXT LIST IMPLEMENTATIONS ----------
 private fun paddedMaxWeight(rawMax: Float): Float {
