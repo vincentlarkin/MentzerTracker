@@ -29,7 +29,8 @@ data class WorkoutLogEntry(
 // User-configurable A/B setup, stored in SharedPreferences
 data class UserWorkoutConfig(
     val workoutAExerciseIds: List<String>,
-    val workoutBExerciseIds: List<String>
+    val workoutBExerciseIds: List<String>,
+    val customExercises: List<Exercise> = emptyList()
 )
 
 // All exercises your app knows about.

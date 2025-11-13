@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +33,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -90,10 +90,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.semantics.Role
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
@@ -101,6 +102,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.roundToInt
 
 
@@ -124,6 +126,7 @@ class MainActivity : ComponentActivity() {
 enum class ThemeMode { DARK, LIGHT }
 private val ScreenPadding = 16.dp
 
+private const val CUSTOM_EXERCISE_NAME_LIMIT = 40
 private const val KEY_THEME_MODE = "theme_mode"
 
 // Point used for graphs + text list
@@ -179,10 +182,26 @@ internal fun loadWorkoutConfig(context: Context): UserWorkoutConfig {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = prefs.getString(KEY_WORKOUT_CONFIG, null) ?: return defaultWorkoutConfig
     return try {
-        gson.fromJson(json, UserWorkoutConfig::class.java) ?: defaultWorkoutConfig
+        val jsonElement = JsonParser.parseString(json)
+        if (!jsonElement.isJsonObject) {
+            return defaultWorkoutConfig
+        }
+        val jsonObject = jsonElement.asJsonObject
+        if (!jsonObject.has("customExercises") || jsonObject.get("customExercises").isJsonNull) {
+            jsonObject.add("customExercises", JsonArray())
+        }
+        val parsed = gson.fromJson(jsonObject, UserWorkoutConfig::class.java)
+        parsed?.sanitized() ?: defaultWorkoutConfig
     } catch (_: Exception) {
         defaultWorkoutConfig
     }
+}
+
+private fun UserWorkoutConfig.sanitized(): UserWorkoutConfig {
+    val filtered = customExercises
+        .filter { it.id.isNotBlank() && it.name.isNotBlank() }
+        .distinctBy { it.id }
+    return copy(customExercises = filtered)
 }
 
 private fun saveWorkoutConfig(context: Context, config: UserWorkoutConfig) {
@@ -406,22 +425,89 @@ fun WorkoutBuilderScreen(
 ) {
     val scrollState = rememberScrollState()
 
-    val allIds = allExercises.map { it.id }
-    val initialA = initialConfig.workoutAExerciseIds.toSet()
-    val initialB = initialConfig.workoutBExerciseIds.toSet()
-
-    val aSelections = remember {
-        mutableStateMapOf<String, Boolean>().apply {
-            allIds.forEach { id -> this[id] = id in initialA }
+    val baseExercises = allExercises
+    val customExercises = remember(initialConfig) {
+        mutableStateListOf<Exercise>().apply {
+            addAll(initialConfig.customExercises)
         }
     }
-    val bSelections = remember {
+
+    val aSelections = remember(initialConfig) {
+        val initialA = initialConfig.workoutAExerciseIds.toSet()
         mutableStateMapOf<String, Boolean>().apply {
-            allIds.forEach { id -> this[id] = id in initialB }
+            (baseExercises + initialConfig.customExercises).forEach { ex ->
+                this[ex.id] = ex.id in initialA
+            }
+        }
+    }
+    val bSelections = remember(initialConfig) {
+        val initialB = initialConfig.workoutBExerciseIds.toSet()
+        mutableStateMapOf<String, Boolean>().apply {
+            (baseExercises + initialConfig.customExercises).forEach { ex ->
+                this[ex.id] = ex.id in initialB
+            }
         }
     }
 
     var errorText by remember { mutableStateOf<String?>(null) }
+    var customNameA by remember { mutableStateOf("") }
+    var customNameB by remember { mutableStateOf("") }
+    var customErrorA by remember { mutableStateOf<String?>(null) }
+    var customErrorB by remember { mutableStateOf<String?>(null) }
+
+    fun ensureSelectionEntry(id: String) {
+        if (aSelections[id] == null) {
+            aSelections[id] = false
+        }
+        if (bSelections[id] == null) {
+            bSelections[id] = false
+        }
+    }
+
+    fun addCustomExercise(
+        rawName: String,
+        selectForA: Boolean,
+        selectForB: Boolean
+    ): String? {
+        val trimmed = rawName.trim()
+        if (trimmed.isEmpty()) {
+            return "Please enter a name."
+        }
+        if (trimmed.length > CUSTOM_EXERCISE_NAME_LIMIT) {
+            return "Limit is $CUSTOM_EXERCISE_NAME_LIMIT characters."
+        }
+        val lower = trimmed.lowercase(Locale.getDefault())
+        val existingNames = (baseExercises + customExercises).map {
+            it.name.lowercase(Locale.getDefault())
+        }
+        if (lower in existingNames) {
+            return "That exercise already exists."
+        }
+        val existingIds = (baseExercises + customExercises).map { it.id }.toSet()
+        val newExercise = Exercise(
+            id = generateCustomExerciseId(existingIds),
+            name = trimmed
+        )
+        customExercises.add(newExercise)
+        ensureSelectionEntry(newExercise.id)
+        aSelections[newExercise.id] = selectForA
+        bSelections[newExercise.id] = selectForB
+        return null
+    }
+
+    fun removeCustomExercise(exercise: Exercise) {
+        customExercises.removeAll { it.id == exercise.id }
+        aSelections.remove(exercise.id)
+        bSelections.remove(exercise.id)
+    }
+
+    fun toggleSelection(
+        map: MutableMap<String, Boolean>,
+        id: String,
+        newValue: Boolean
+    ) {
+        map[id] = newValue
+    }
 
     Scaffold(
         topBar = {
@@ -465,6 +551,8 @@ fun WorkoutBuilderScreen(
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            val combinedExercises = baseExercises + customExercises.toList()
+
             Text(
                 "Pick at least 2 exercises for each workout. You can reuse an exercise in both A and B if you want.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -477,21 +565,68 @@ fun WorkoutBuilderScreen(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            allExercises.forEach { ex ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = customNameA,
+                    onValueChange = { value ->
+                        val clipped = value.take(CUSTOM_EXERCISE_NAME_LIMIT)
+                        customNameA = clipped
+                        if (customErrorA != null) {
+                            customErrorA = null
+                        }
+                    },
+                    label = { Text("Custom exercise") },
+                    placeholder = { Text("e.g. Cable Fly") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    isError = customErrorA != null,
+                    supportingText = {
+                        Text("${customNameA.length}/$CUSTOM_EXERCISE_NAME_LIMIT")
+                    }
+                )
+                Button(
+                    onClick = {
+                        val error = addCustomExercise(
+                            rawName = customNameA,
+                            selectForA = true,
+                            selectForB = false
+                        )
+                        if (error != null) {
+                            customErrorA = error
+                        } else {
+                            customNameA = ""
+                            customErrorA = null
+                        }
+                    },
+                    enabled = customNameA.isNotBlank(),
+                    shape = RectangleShape
+                ) {
+                    Text("Add")
+                }
+            }
+            if (customErrorA != null) {
+                Text(
+                    text = customErrorA!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            combinedExercises.forEach { ex ->
                 val checked = aSelections[ex.id] == true
+                val isCustom = customExercises.any { it.id == ex.id }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .toggleable(
-                            value = checked,
-                            onValueChange = { aSelections[ex.id] = it },
-                            role = Role.Checkbox
-                        )
+                        .padding(vertical = 4.dp)
                 ) {
                     Checkbox(
                         checked = checked,
-                        onCheckedChange = null,
+                        onCheckedChange = { toggleSelection(aSelections, ex.id, it) },
                         colors = CheckboxDefaults.colors(
                             checkedColor = MaterialTheme.colorScheme.primary,
                             uncheckedColor = MaterialTheme.colorScheme.outline,
@@ -500,8 +635,20 @@ fun WorkoutBuilderScreen(
                     )
                     Text(
                         ex.name,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { toggleSelection(aSelections, ex.id, !checked) }
+                            .padding(end = 8.dp)
                     )
+                    if (isCustom) {
+                        TextButton(
+                            onClick = { removeCustomExercise(ex) },
+                            shape = RectangleShape
+                        ) {
+                            Text("Delete")
+                        }
+                    }
                 }
             }
 
@@ -513,21 +660,68 @@ fun WorkoutBuilderScreen(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            allExercises.forEach { ex ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = customNameB,
+                    onValueChange = { value ->
+                        val clipped = value.take(CUSTOM_EXERCISE_NAME_LIMIT)
+                        customNameB = clipped
+                        if (customErrorB != null) {
+                            customErrorB = null
+                        }
+                    },
+                    label = { Text("Custom exercise") },
+                    placeholder = { Text("e.g. Reverse Crunch") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    isError = customErrorB != null,
+                    supportingText = {
+                        Text("${customNameB.length}/$CUSTOM_EXERCISE_NAME_LIMIT")
+                    }
+                )
+                Button(
+                    onClick = {
+                        val error = addCustomExercise(
+                            rawName = customNameB,
+                            selectForA = false,
+                            selectForB = true
+                        )
+                        if (error != null) {
+                            customErrorB = error
+                        } else {
+                            customNameB = ""
+                            customErrorB = null
+                        }
+                    },
+                    enabled = customNameB.isNotBlank(),
+                    shape = RectangleShape
+                ) {
+                    Text("Add")
+                }
+            }
+            if (customErrorB != null) {
+                Text(
+                    text = customErrorB!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            combinedExercises.forEach { ex ->
                 val checked = bSelections[ex.id] == true
+                val isCustom = customExercises.any { it.id == ex.id }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .toggleable(
-                            value = checked,
-                            onValueChange = { bSelections[ex.id] = it },
-                            role = Role.Checkbox
-                        )
+                        .padding(vertical = 4.dp)
                 ) {
                     Checkbox(
                         checked = checked,
-                        onCheckedChange = null,
+                        onCheckedChange = { toggleSelection(bSelections, ex.id, it) },
                         colors = CheckboxDefaults.colors(
                             checkedColor = MaterialTheme.colorScheme.primary,
                             uncheckedColor = MaterialTheme.colorScheme.outline,
@@ -536,8 +730,20 @@ fun WorkoutBuilderScreen(
                     )
                     Text(
                         ex.name,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { toggleSelection(bSelections, ex.id, !checked) }
+                            .padding(end = 8.dp)
                     )
+                    if (isCustom) {
+                        TextButton(
+                            onClick = { removeCustomExercise(ex) },
+                            shape = RectangleShape
+                        ) {
+                            Text("Delete")
+                        }
+                    }
                 }
             }
 
@@ -551,8 +757,17 @@ fun WorkoutBuilderScreen(
 
             Button(
                 onClick = {
-                    val aIds = aSelections.filterValues { it }.keys.toList()
-                    val bIds = bSelections.filterValues { it }.keys.toList()
+                    val combined = (baseExercises + customExercises.toList())
+                        .distinctBy { it.id }
+                    val validIds = combined.map { it.id }.toSet()
+                    val aIds = aSelections
+                        .filter { (id, checked) -> checked && id in validIds }
+                        .keys
+                        .toList()
+                    val bIds = bSelections
+                        .filter { (id, checked) -> checked && id in validIds }
+                        .keys
+                        .toList()
 
                     when {
                         aIds.size < 2 ->
@@ -564,7 +779,8 @@ fun WorkoutBuilderScreen(
                             onDone(
                                 UserWorkoutConfig(
                                     workoutAExerciseIds = aIds,
-                                    workoutBExerciseIds = bIds
+                                    workoutBExerciseIds = bIds,
+                                    customExercises = customExercises.toList()
                                 )
                             )
                         }
@@ -584,6 +800,15 @@ fun WorkoutBuilderScreen(
 
 
 
+private fun generateCustomExerciseId(existingIds: Set<String>): String {
+    var candidate: String
+    do {
+        candidate = "custom_${UUID.randomUUID()}"
+    } while (candidate in existingIds)
+    return candidate
+}
+
+
 // ---------- MAIN TRACKER APP (INCLUDING FULL PROGRESS NAV) ----------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -595,6 +820,13 @@ fun WorkoutTrackerApp(
 ) {
     val context = LocalContext.current
     var selectedTemplateId by remember { mutableStateOf("A") }
+
+    val combinedExercises = remember(config) {
+        (allExercises + config.customExercises).distinctBy { it.id }
+    }
+    val exercisesById = remember(config) {
+        combinedExercises.associateBy { it.id }
+    }
 
     // Build templates from current config
     val templates = remember(config) {
@@ -688,6 +920,7 @@ fun WorkoutTrackerApp(
 
              LogWorkoutSection(
                  template = currentTemplate,
+                 exercisesById = exercisesById,
                  onSave = { sets ->
                      val entry = WorkoutLogEntry(
                          id = System.currentTimeMillis(),
@@ -703,14 +936,14 @@ fun WorkoutTrackerApp(
 
              ProgressSection(
                  logs = logEntries,
-                 exercises = allExercises,
+                 exercises = combinedExercises,
                  onOpenFullScreen = { showFullProgressState.value = true }
              )
          }
         } else {
             FullProgressScreen(
                 logs = logEntries,
-                exercises = allExercises,
+                exercises = combinedExercises,
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize(),
@@ -770,6 +1003,7 @@ fun TemplateSelector(
 @Composable
 fun LogWorkoutSection(
     template: WorkoutTemplate,
+    exercisesById: Map<String, Exercise>,
     onSave: (List<ExerciseSetEntry>) -> Unit
 ) {
     Text("Log ${template.name}", style = MaterialTheme.typography.titleMedium)
@@ -779,7 +1013,7 @@ fun LogWorkoutSection(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         template.exerciseIds.forEach { exerciseId ->
-            val exercise = allExercises.firstOrNull { it.id == exerciseId }
+            val exercise = exercisesById[exerciseId]
                 ?: return@forEach
 
             Row(
