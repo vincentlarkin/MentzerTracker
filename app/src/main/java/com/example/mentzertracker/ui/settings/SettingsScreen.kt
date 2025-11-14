@@ -7,20 +7,25 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,22 +33,30 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import com.vincentlarkin.mentzertracker.BackupSnapshot
 import com.vincentlarkin.mentzertracker.ThemeMode
+import com.vincentlarkin.mentzertracker.allowPartialSessions
 import com.vincentlarkin.mentzertracker.gson
 import com.vincentlarkin.mentzertracker.importBackupFromJson
 import com.vincentlarkin.mentzertracker.hasSeenSplash
@@ -63,7 +76,9 @@ private val SettingsScreenPadding = 16.dp
 @Composable
 fun SettingsScreen(
     themeMode: ThemeMode,
+    isPartialSessionsAllowed: Boolean,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onAllowPartialSessionsChange: (Boolean) -> Unit,
     onImportBackup: (ThemeMode) -> Unit,
     onResetData: () -> Unit,
     onBack: () -> Unit
@@ -74,6 +89,12 @@ fun SettingsScreen(
     val showImportConfirmState = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val isDarkMode = themeMode == ThemeMode.DARK
+    var debugExpanded by remember { mutableStateOf(false) }
+    val debugChevronRotation by animateFloatAsState(
+        targetValue = if (debugExpanded) 90f else 0f,
+        label = "debugChevron"
+    )
+    val primaryButtonShape = RoundedCornerShape(10.dp)
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -214,14 +235,16 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(SettingsScreenPadding)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .padding(horizontal = SettingsScreenPadding)
+                .padding(bottom = 24.dp, top = SettingsScreenPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.Info,
@@ -236,6 +259,7 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSectionHeader("Appearance")
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -270,46 +294,120 @@ fun SettingsScreen(
                 }
             }
 
-            Button(
-                onClick = {
-                    val timestamp = SimpleDateFormat(
-                        "yyyyMMdd-HHmmss",
-                        Locale.getDefault()
-                    ).format(Date())
-                    val suggestedName = "mentzer-tracker-backup-$timestamp.json"
-                    exportLauncher.launch(suggestedName)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RectangleShape
-            ) {
-                Text("Export backup")
+            SettingsSectionHeader("Backups")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        val timestamp = SimpleDateFormat(
+                            "yyyyMMdd-HHmmss",
+                            Locale.getDefault()
+                        ).format(Date())
+                        val suggestedName = "mentzer-tracker-backup-$timestamp.json"
+                        exportLauncher.launch(suggestedName)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = primaryButtonShape
+                ) {
+                    Text("Export backup")
+                }
+
+                Button(
+                    onClick = { showImportConfirmState.value = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = primaryButtonShape
+                ) {
+                    Text("Import backup")
+                }
+
+                Button(
+                    onClick = { showResetConfirmState.value = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = primaryButtonShape
+                ) {
+                    Text("Reset data")
+                }
             }
 
-            Button(
-                onClick = { showImportConfirmState.value = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RectangleShape
-            ) {
-                Text("Import backup")
-            }
-
-            Button(
-                onClick = { showResetConfirmState.value = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RectangleShape
-            ) {
-                Text("Reset data")
-            }
-
+            SettingsSectionHeader("About")
             Button(
                 onClick = { uriHandler.openUri("https://github.com/VincentW2/MentzerTracker") },
-                modifier = Modifier.align(Alignment.End),
-                shape = RectangleShape
+                modifier = Modifier.fillMaxWidth(),
+                shape = primaryButtonShape
             ) {
                 Text("GitHub Repository")
             }
+
+            SettingsSectionHeader("Debug tools")
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { debugExpanded = !debugExpanded }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowRight,
+                            contentDescription = if (debugExpanded) "Collapse" else "Expand",
+                            modifier = Modifier.rotate(debugChevronRotation)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Debug options", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    if (debugExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onAllowPartialSessionsChange(!isPartialSessionsAllowed)
+                                    }
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Allow partial sessions", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Let \"Save session\" skip exercises left blank.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Switch(
+                                    checked = isPartialSessionsAllowed,
+                                    onCheckedChange = onAllowPartialSessionsChange
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String) {
+    Text(
+        text = title.uppercase(Locale.getDefault()),
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 6.dp)
+    )
 }
 
 internal fun buildExportJson(
@@ -324,6 +422,7 @@ internal fun buildExportJson(
         appVersion = resolveAppVersion(context),
         themeMode = themeMode.name.lowercase(Locale.ROOT),
         hasSeenSplash = hasSeenSplash(context),
+        allowPartialSessions = allowPartialSessions(context),
         workoutConfig = loadWorkoutConfig(context),
         workoutLogs = loadWorkoutLogs(context)
     )

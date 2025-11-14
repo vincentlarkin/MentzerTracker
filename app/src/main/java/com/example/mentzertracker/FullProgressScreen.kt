@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,12 +17,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,15 +33,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -55,6 +63,7 @@ fun FullProgressScreen(
     logs: List<WorkoutLogEntry>,
     exercises: List<Exercise>,
     modifier: Modifier = Modifier,
+    initialExerciseId: String? = null,
     onUpdateLogs: (List<WorkoutLogEntry>) -> Unit
 ) {
     if (logs.isEmpty()) {
@@ -68,9 +77,8 @@ fun FullProgressScreen(
     }
 
     // Only exercises that actually have history
-    val exercisesWithHistory = remember(logs) {
-        val ids = logs.flatMap { it.sets.map { s -> s.exerciseId } }.toSet()
-        exercises.filter { it.id in ids }
+    val exercisesWithHistory = exercises.filter { exercise ->
+        logs.any { log -> log.sets.any { it.exerciseId == exercise.id } }
     }
 
     if (exercisesWithHistory.isEmpty()) {
@@ -83,36 +91,101 @@ fun FullProgressScreen(
         return
     }
 
-    var selectedExercise by remember { mutableStateOf(exercisesWithHistory.first()) }
+    val defaultExerciseId = remember(initialExerciseId, exercisesWithHistory) {
+        initialExerciseId?.takeIf { id -> exercisesWithHistory.any { it.id == id } }
+            ?: exercisesWithHistory.first().id
+    }
 
-    // Editable entries for this exercise
-    val editableEntries = remember(selectedExercise, logs) {
-        logs.flatMap { log ->
-            log.sets.mapIndexedNotNull { index, set ->
-                if (set.exerciseId == selectedExercise.id) {
-                    EditableEntryUi(
+    var selectedExerciseId by rememberSaveable(defaultExerciseId) {
+        mutableStateOf(defaultExerciseId)
+    }
+
+    LaunchedEffect(exercisesWithHistory, selectedExerciseId) {
+        if (exercisesWithHistory.isNotEmpty() &&
+            exercisesWithHistory.none { it.id == selectedExerciseId }
+        ) {
+            selectedExerciseId = exercisesWithHistory.first().id
+        }
+    }
+
+    val selectedExercise = exercisesWithHistory.firstOrNull { it.id == selectedExerciseId }
+        ?: exercisesWithHistory.first()
+
+    var deleteMode by remember(selectedExerciseId) { mutableStateOf(false) }
+    var pendingDeleteEntry by remember(selectedExerciseId) { mutableStateOf<EditableEntryUi?>(null) }
+
+    val entryStateMap = remember(selectedExerciseId) {
+        mutableStateMapOf<Pair<Long, Int>, EditableEntryUi>()
+    }
+
+    val logsSignature = logs.fold(0) { acc, log ->
+        var result = 31 * acc + log.id.hashCode()
+        result = 31 * result + log.date.hashCode()
+        result = 31 * result + log.sets.hashCode()
+        result
+    }
+    var logsVersion by remember(selectedExerciseId) { mutableStateOf(logsSignature) }
+    val logsChanged = logsVersion != logsSignature
+    LaunchedEffect(selectedExerciseId, logsSignature) {
+        logsVersion = logsSignature
+    }
+
+    val activeKeys = mutableListOf<Pair<Long, Int>>()
+    logs.forEach { log ->
+        log.sets.forEachIndexed { index, set ->
+            if (set.exerciseId == selectedExercise.id) {
+                val key = log.id to index
+                activeKeys.add(key)
+                val existing = entryStateMap[key]
+                if (existing == null) {
+                    entryStateMap[key] = EditableEntryUi(
                         logId = log.id,
                         setIndex = index,
                         date = mutableStateOf(log.date),
                         weight = mutableStateOf(set.weight.toString()),
                         reps = mutableStateOf(set.reps.toString())
                     )
-                } else null
+                } else if (logsChanged) {
+                    if (existing.date.value != log.date) {
+                        existing.date.value = log.date
+                    }
+                    val weightString = set.weight.toString()
+                    if (existing.weight.value != weightString) {
+                        existing.weight.value = weightString
+                    }
+                    val repsString = set.reps.toString()
+                    if (existing.reps.value != repsString) {
+                        existing.reps.value = repsString
+                    }
+                }
             }
-        }.toMutableList()
-    }
-
-    val sortedEntriesForGraph by remember(selectedExercise, logs) {
-        derivedStateOf {
-            editableEntries.sortedWith(
-                compareBy(
-                    { parseIsoDateMillis(it.date.value) ?: Long.MAX_VALUE },
-                    { it.logId },
-                    { it.setIndex }
-                )
-            )
         }
     }
+
+    val activeKeySet = activeKeys.toSet()
+    val keysToRemove = entryStateMap.keys - activeKeySet
+    keysToRemove.forEach { key ->
+        if (pendingDeleteEntry?.let { it.logId to it.setIndex } == key) {
+            pendingDeleteEntry = null
+        }
+        entryStateMap.remove(key)
+    }
+
+    val editableEntries = activeKeys.mapNotNull { entryStateMap[it] }
+
+    LaunchedEffect(deleteMode, editableEntries.size) {
+        if (deleteMode && editableEntries.isEmpty()) {
+            deleteMode = false
+        }
+    }
+
+    val sortedEntriesForGraph = editableEntries.sortedWith(
+        compareBy(
+            { parseIsoDateMillis(it.date.value) ?: Long.MAX_VALUE },
+            { it.logId },
+            { it.setIndex }
+        )
+    )
 
     val sessionPoints = sortedEntriesForGraph.mapIndexed { idx, entry ->
         val w = entry.weight.value.toFloatOrNull() ?: 0f
@@ -135,7 +208,7 @@ fun FullProgressScreen(
         ExerciseDropdown(
             exercisesWithHistory = exercisesWithHistory,
             selected = selectedExercise,
-            onSelectedChange = { selectedExercise = it }
+            onSelectedChange = { selectedExerciseId = it.id }
         )
 
         // Graph
@@ -156,10 +229,23 @@ fun FullProgressScreen(
             )
         }
 
-        Text(
-            text = "Entries",
-            style = MaterialTheme.typography.titleMedium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Entries",
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextButton(
+                onClick = { deleteMode = !deleteMode },
+                shape = RectangleShape,
+                enabled = editableEntries.isNotEmpty()
+            ) {
+                Text(if (deleteMode) "Done" else "Delete entries")
+            }
+        }
 
         // Editable list
         LazyColumn(
@@ -195,6 +281,17 @@ fun FullProgressScreen(
                         label = { Text("reps") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+                    if (deleteMode) {
+                        Spacer(modifier = Modifier.weight(1f, fill = false))
+                        IconButton(
+                            onClick = { pendingDeleteEntry = entry }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Delete entry"
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -213,6 +310,44 @@ fun FullProgressScreen(
         ) {
             Text("Save changes")
         }
+    }
+
+    val entryToDelete = pendingDeleteEntry
+    if (entryToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteEntry = null },
+            title = { Text("Delete entry?") },
+            text = {
+                Text(
+                    "Remove the entry on ${entryToDelete.date.value} " +
+                            "(${entryToDelete.weight.value} lbs × ${entryToDelete.reps.value} reps)?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteEntry = null
+                        val updatedLogs = deleteEntryFromLogs(
+                            logs = logs,
+                            exerciseId = selectedExercise.id,
+                            entry = entryToDelete
+                        )
+                        onUpdateLogs(updatedLogs)
+                    },
+                    shape = RectangleShape
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDeleteEntry = null },
+                    shape = RectangleShape
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -332,6 +467,39 @@ fun applyEditsToLogs(
     }
 
     return updatedLogs.sortedWith(
+        compareBy(
+            { parseIsoDateMillis(it.date) ?: Long.MAX_VALUE },
+            { it.id }
+        )
+    )
+}
+
+fun deleteEntryFromLogs(
+    logs: List<WorkoutLogEntry>,
+    exerciseId: String,
+    entry: EditableEntryUi
+): List<WorkoutLogEntry> {
+    val updated = logs.mapNotNull { log ->
+        if (log.id != entry.logId) {
+            log
+        } else {
+            val sets = log.sets.toMutableList()
+            if (entry.setIndex !in sets.indices) {
+                log
+            } else if (sets[entry.setIndex].exerciseId != exerciseId) {
+                log
+            } else {
+                sets.removeAt(entry.setIndex)
+                if (sets.isEmpty()) {
+                    null
+                } else {
+                    log.copy(sets = sets.toList())
+                }
+            }
+        }
+    }
+
+    return updated.sortedWith(
         compareBy(
             { parseIsoDateMillis(it.date) ?: Long.MAX_VALUE },
             { it.id }

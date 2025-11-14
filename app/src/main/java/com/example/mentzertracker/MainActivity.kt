@@ -64,6 +64,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -134,6 +135,7 @@ private val ScreenPadding = 16.dp
 
 private const val CUSTOM_EXERCISE_NAME_LIMIT = 40
 private const val KEY_THEME_MODE = "theme_mode"
+private const val KEY_ALLOW_PARTIAL_SESSIONS = "allow_partial_sessions"
 
 // Point used for graphs + text list
 data class SessionPoint(
@@ -155,6 +157,7 @@ internal data class BackupSnapshot(
     val appVersion: String = "",
     val themeMode: String = "dark",
     val hasSeenSplash: Boolean = false,
+    val allowPartialSessions: Boolean = false,
     val workoutConfig: UserWorkoutConfig? = null,
     val workoutLogs: List<WorkoutLogEntry>? = emptyList()
 )
@@ -249,6 +252,16 @@ private fun saveThemeMode(context: Context, mode: ThemeMode) {
     }
 }
 
+internal fun allowPartialSessions(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getBoolean(KEY_ALLOW_PARTIAL_SESSIONS, false)
+}
+
+private fun saveAllowPartialSessions(context: Context, allowed: Boolean) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit { putBoolean(KEY_ALLOW_PARTIAL_SESSIONS, allowed) }
+}
+
 private fun resetAppData(context: Context) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     prefs.edit {
@@ -256,6 +269,7 @@ private fun resetAppData(context: Context) {
         remove(KEY_WORKOUT_LOGS)
         remove(KEY_WORKOUT_CONFIG)
         remove(KEY_THEME_MODE)
+        remove(KEY_ALLOW_PARTIAL_SESSIONS)
     }
 }
 
@@ -274,6 +288,7 @@ internal fun importBackupFromJson(
     resetAppData(context)
     saveThemeMode(context, themeMode)
     saveWorkoutConfig(context, config)
+    saveAllowPartialSessions(context, snapshot.allowPartialSessions)
     saveWorkoutLogs(context, logs)
     saveHasSeenSplash(context, snapshot.hasSeenSplash)
 
@@ -334,10 +349,12 @@ fun MentzerApp() {
     val context = LocalContext.current
 
     val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
+    val allowPartialSessionsState = remember { mutableStateOf(allowPartialSessions(context)) }
     val showSettingsState = remember { mutableStateOf(false) }
     val resetKeyState = remember { mutableStateOf(0) }
 
     val themeMode = themeModeState.value
+    val allowPartialSessions = allowPartialSessionsState.value
     val showSettings = showSettingsState.value
     val resetKey = resetKeyState.value
 
@@ -346,6 +363,7 @@ fun MentzerApp() {
 
         val handleImport: (ThemeMode) -> Unit = { importedMode ->
             themeModeState.value = importedMode
+            allowPartialSessionsState.value = allowPartialSessions(context)
             resetKeyState.value = resetKeyState.value + 1
             showSettingsState.value = false
         }
@@ -353,14 +371,20 @@ fun MentzerApp() {
         if (showSettings) {
             SettingsScreen(
                 themeMode = themeMode,
+                isPartialSessionsAllowed = allowPartialSessions,
                 onThemeModeChange = { newMode ->
                     themeModeState.value = newMode
                     saveThemeMode(context, newMode)
+                },
+                onAllowPartialSessionsChange = { enabled ->
+                    allowPartialSessionsState.value = enabled
+                    saveAllowPartialSessions(context, enabled)
                 },
                 onImportBackup = handleImport,
                 onResetData = {
                     resetAppData(context)
                     themeModeState.value = loadThemeMode(context)
+                    allowPartialSessionsState.value = allowPartialSessions(context)
                     resetKeyState.value = resetKeyState.value + 1
                     showSettingsState.value = false
                 },
@@ -370,7 +394,8 @@ fun MentzerApp() {
             key(resetKey) {
                 AppRoot(
                     onOpenSettings = { showSettingsState.value = true },
-                    onImportBackup = handleImport
+                    onImportBackup = handleImport,
+                    allowPartialSessions = allowPartialSessions
                 )
             }
         }
@@ -398,7 +423,8 @@ private fun ApplySystemBarStyle(themeMode: ThemeMode) {
 @Composable
 fun AppRoot(
     onOpenSettings: () -> Unit,
-    onImportBackup: (ThemeMode) -> Unit
+    onImportBackup: (ThemeMode) -> Unit,
+    allowPartialSessions: Boolean
 ) {
     val context = LocalContext.current
 
@@ -450,7 +476,8 @@ fun AppRoot(
             WorkoutTrackerApp(
                 config = workoutConfig,
                 onEditWorkouts = { editingConfigState.value = true },
-                onOpenSettings = onOpenSettings
+                onOpenSettings = onOpenSettings,
+                allowPartialSessions = allowPartialSessions
             )
         }
     }
@@ -989,7 +1016,8 @@ private fun generateCustomExerciseId(existingIds: Set<String>): String {
 fun WorkoutTrackerApp(
     config: UserWorkoutConfig,
     onEditWorkouts: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    allowPartialSessions: Boolean
 ) {
     val context = LocalContext.current
     var selectedTemplateId by remember { mutableStateOf("A") }
@@ -1025,11 +1053,13 @@ fun WorkoutTrackerApp(
     }
 
     val showFullProgressState = remember { mutableStateOf(false) }
+    val fullScreenExerciseIdState = remember { mutableStateOf<String?>(null) }
     val showFullProgress = showFullProgressState.value
 
     if (showFullProgress) {
         BackHandler {
             showFullProgressState.value = false
+            fullScreenExerciseIdState.value = null
         }
     }
 
@@ -1055,7 +1085,10 @@ fun WorkoutTrackerApp(
                     title = { Text("Progress") },
                     navigationIcon = {
                         IconButton(
-                            onClick = { showFullProgressState.value = false },
+                            onClick = {
+                                showFullProgressState.value = false
+                                fullScreenExerciseIdState.value = null
+                            },
                             modifier = Modifier.clip(RectangleShape)
                         ) {
                             Icon(
@@ -1094,6 +1127,7 @@ fun WorkoutTrackerApp(
              LogWorkoutSection(
                  template = currentTemplate,
                  exercisesById = exercisesById,
+                allowPartialSessions = allowPartialSessions,
                  onSave = { sets ->
                      val entry = WorkoutLogEntry(
                          id = System.currentTimeMillis(),
@@ -1110,7 +1144,10 @@ fun WorkoutTrackerApp(
              ProgressSection(
                  logs = logEntries,
                  exercises = combinedExercises,
-                 onOpenFullScreen = { showFullProgressState.value = true }
+                onOpenFullScreen = { exercise ->
+                    fullScreenExerciseIdState.value = exercise.id
+                    showFullProgressState.value = true
+                }
              )
          }
         } else {
@@ -1119,7 +1156,8 @@ fun WorkoutTrackerApp(
                 exercises = combinedExercises,
                 modifier = Modifier
                     .padding(padding)
-                    .fillMaxSize(),
+                .fillMaxSize(),
+            initialExerciseId = fullScreenExerciseIdState.value,
                 onUpdateLogs = { newLogs ->
                     logEntries.clear()
                     logEntries.addAll(newLogs)
@@ -1177,6 +1215,7 @@ fun TemplateSelector(
 fun LogWorkoutSection(
     template: WorkoutTemplate,
     exercisesById: Map<String, Exercise>,
+    allowPartialSessions: Boolean,
     onSave: (List<ExerciseSetEntry>) -> Unit
 ) {
     Text("Log ${template.name}", style = MaterialTheme.typography.titleMedium)
@@ -1184,6 +1223,9 @@ fun LogWorkoutSection(
     val weightState = remember { mutableStateMapOf<String, String>() }
     val repsState = remember { mutableStateMapOf<String, String>() }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(allowPartialSessions) {
+        errorMessage = null
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         template.exerciseIds.forEach { exerciseId ->
             val exercise = exercisesById[exerciseId]
@@ -1229,7 +1271,7 @@ fun LogWorkoutSection(
 
         Button(
             onClick = {
-                var hasError = false
+                var hasInvalidEntry = false
                 val sets = mutableListOf<ExerciseSetEntry>()
 
                 template.exerciseIds.forEach { id ->
@@ -1238,24 +1280,64 @@ fun LogWorkoutSection(
                     val w = wStr.toFloatOrNull()
                     val r = rStr.toIntOrNull()
 
-                    if (wStr.isEmpty() || rStr.isEmpty() || w == null || r == null) {
-                        hasError = true
-                    } else {
-                        sets.add(
-                            ExerciseSetEntry(
-                                exerciseId = id,
-                                weight = w,
-                                reps = r
+                    if (allowPartialSessions) {
+                        when {
+                            wStr.isEmpty() && rStr.isEmpty() -> Unit
+                            w == null || r == null -> hasInvalidEntry = true
+                            else -> sets.add(
+                                ExerciseSetEntry(
+                                    exerciseId = id,
+                                    weight = w,
+                                    reps = r
+                                )
                             )
-                        )
+                        }
+                    } else {
+                        if (w == null || r == null) {
+                            hasInvalidEntry = true
+                        } else {
+                            sets.add(
+                                ExerciseSetEntry(
+                                    exerciseId = id,
+                                    weight = w,
+                                    reps = r
+                                )
+                            )
+                        }
                     }
                 }
 
-                if (hasError || sets.isEmpty()) {
-                    errorMessage =
-                        "Please enter numeric weight and reps for all exercises before saving."
-                } else {
-                    errorMessage = null
+                val canSave = when {
+                    !allowPartialSessions && (hasInvalidEntry || sets.size != template.exerciseIds.size) -> {
+                        errorMessage =
+                            "Please enter numeric weight and reps for all exercises before saving."
+                        false
+                    }
+
+                    allowPartialSessions && hasInvalidEntry -> {
+                        errorMessage =
+                            "Enter weight and reps together for the exercises you track, or leave them blank."
+                        false
+                    }
+
+                    allowPartialSessions && sets.isEmpty() -> {
+                        errorMessage = "Add at least one exercise entry before saving."
+                        false
+                    }
+
+                    sets.isEmpty() -> {
+                        errorMessage =
+                            "Please enter numeric weight and reps for all exercises before saving."
+                        false
+                    }
+
+                    else -> {
+                        errorMessage = null
+                        true
+                    }
+                }
+
+                if (canSave) {
                     onSave(sets)
 
                     // Clear fields after save
@@ -1286,22 +1368,12 @@ fun LogWorkoutSection(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+
 fun ProgressSection(
     logs: List<WorkoutLogEntry>,
     exercises: List<Exercise>,
-    onOpenFullScreen: () -> Unit
+    onOpenFullScreen: (Exercise) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Progress", style = MaterialTheme.typography.titleMedium)
-        TextButton(onClick = onOpenFullScreen, shape = RectangleShape) {
-            Text("Full screen")
-        }
-    }
-
     if (logs.isEmpty()) {
         Text("No sessions logged yet.")
         return
@@ -1332,6 +1404,20 @@ fun ProgressSection(
 
     if (!histories.containsKey(selectedExercise)) {
         selectedExercise = histories.keys.first()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Progress", style = MaterialTheme.typography.titleMedium)
+        TextButton(
+            onClick = { onOpenFullScreen(selectedExercise) },
+            shape = RectangleShape
+        ) {
+            Text("Full screen")
+        }
     }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
