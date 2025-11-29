@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,19 +26,23 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
+private const val NOTE_CHAR_LIMIT = 400
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogWorkoutSection(
     template: WorkoutTemplate,
     exercisesById: Map<String, Exercise>,
     allowPartialSessions: Boolean,
-    onSave: (List<ExerciseSetEntry>) -> Unit
+    onSave: (List<ExerciseSetEntry>, String?) -> Unit
 ) {
     Text("Log ${template.name}", style = MaterialTheme.typography.titleMedium)
 
     val weightState = remember { mutableStateMapOf<String, String>() }
     val repsState = remember { mutableStateMapOf<String, String>() }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var notes by remember { mutableStateOf("") }
+    var showNotesField by remember { mutableStateOf(false) }
     LaunchedEffect(allowPartialSessions) {
         errorMessage = null
     }
@@ -79,6 +84,36 @@ fun LogWorkoutSection(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
+            }
+        }
+
+        if (showNotesField) {
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { input ->
+                    notes = input.take(NOTE_CHAR_LIMIT)
+                },
+                label = { Text("Notes") },
+                placeholder = { Text("Any quick context for this session?") },
+                supportingText = {
+                    Text("${notes.length}/$NOTE_CHAR_LIMIT")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 5
+            )
+            TextButton(
+                onClick = { showNotesField = false },
+                shape = RectangleShape
+            ) {
+                Text("Hide notes")
+            }
+        } else {
+            TextButton(
+                onClick = { showNotesField = true },
+                shape = RectangleShape
+            ) {
+                Text("Add notes")
             }
         }
 
@@ -151,12 +186,14 @@ fun LogWorkoutSection(
                 }
 
                 if (canSave) {
-                    onSave(sets)
+                    val trimmedNotes = notes.trim()
+                    onSave(sets, trimmedNotes.takeIf { it.isNotEmpty() })
 
                     template.exerciseIds.forEach { id ->
                         weightState[id] = ""
                         repsState[id] = ""
                     }
+                    notes = ""
                 }
             },
             modifier = Modifier.padding(top = 8.dp),

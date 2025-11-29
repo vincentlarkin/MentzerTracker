@@ -113,6 +113,7 @@ fun FullProgressScreen(
 
     var deleteMode by remember(selectedExerciseId) { mutableStateOf(false) }
     var pendingDeleteEntry by remember(selectedExerciseId) { mutableStateOf<EditableEntryUi?>(null) }
+    var noteDialogState by remember(selectedExerciseId) { mutableStateOf<Pair<String, String>?>(null) }
 
     val entryStateMap = remember(selectedExerciseId) {
         mutableStateMapOf<Pair<Long, Int>, EditableEntryUi>()
@@ -123,6 +124,9 @@ fun FullProgressScreen(
         result = 31 * result + log.date.hashCode()
         result = 31 * result + log.sets.hashCode()
         result
+    }
+    val notesByLogId = remember(logsSignature) {
+        logs.associate { it.id to (it.notes ?: "") }
     }
     var logsVersion by remember(selectedExerciseId) { mutableStateOf(logsSignature) }
     val logsChanged = logsVersion != logsSignature
@@ -194,7 +198,8 @@ fun FullProgressScreen(
             sessionIndex = idx + 1,
             date = entry.date.value,
             weight = w,
-            reps = r
+            reps = r,
+            notes = notesByLogId[entry.logId]
         )
     }
 
@@ -255,41 +260,57 @@ fun FullProgressScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(sortedEntriesForGraph, key = { it.logId to it.setIndex }) { entry ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                val noteText = notesByLogId[entry.logId].orEmpty()
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    DateTextField(
-                        dateState = entry.date,
-                        modifier = Modifier.width(110.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        DateTextField(
+                            dateState = entry.date,
+                            modifier = Modifier.width(110.dp)
+                        )
 
-                    OutlinedTextField(
-                        value = entry.weight.value,
-                        onValueChange = { entry.weight.value = it },
-                        modifier = Modifier.width(80.dp),
-                        singleLine = true,
-                        label = { Text("lbs") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    OutlinedTextField(
-                        value = entry.reps.value,
-                        onValueChange = { entry.reps.value = it },
-                        modifier = Modifier.width(80.dp),
-                        singleLine = true,
-                        label = { Text("reps") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    if (deleteMode) {
-                        Spacer(modifier = Modifier.weight(1f, fill = false))
-                        IconButton(
-                            onClick = { pendingDeleteEntry = entry }
+                        OutlinedTextField(
+                            value = entry.weight.value,
+                            onValueChange = { entry.weight.value = it },
+                            modifier = Modifier.width(80.dp),
+                            singleLine = true,
+                            label = { Text("lbs") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        OutlinedTextField(
+                            value = entry.reps.value,
+                            onValueChange = { entry.reps.value = it },
+                            modifier = Modifier.width(80.dp),
+                            singleLine = true,
+                            label = { Text("reps") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        if (deleteMode) {
+                            Spacer(modifier = Modifier.weight(1f, fill = false))
+                            IconButton(
+                                onClick = { pendingDeleteEntry = entry }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Delete entry"
+                                )
+                            }
+                        }
+                    }
+                    if (noteText.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                noteDialogState = entry.date.value to noteText
+                            },
+                            shape = RectangleShape
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Delete entry"
-                            )
+                            Text("View notes")
                         }
                     }
                 }
@@ -310,6 +331,23 @@ fun FullProgressScreen(
         ) {
             Text("Save changes")
         }
+    }
+
+    val noteDialog = noteDialogState
+    if (noteDialog != null) {
+        AlertDialog(
+            onDismissRequest = { noteDialogState = null },
+            title = { Text("Notes for ${noteDialog.first}") },
+            text = { Text(noteDialog.second) },
+            confirmButton = {
+                TextButton(
+                    onClick = { noteDialogState = null },
+                    shape = RectangleShape
+                ) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     val entryToDelete = pendingDeleteEntry

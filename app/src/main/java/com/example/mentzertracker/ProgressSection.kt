@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -85,7 +86,8 @@ fun ProgressSection(
                             sessionIndex = index + 1,
                             date = log.date,
                             weight = setEntry.weight,
-                            reps = setEntry.reps
+                            reps = setEntry.reps,
+                            notes = log.notes
                         )
                     }
             }
@@ -566,6 +568,8 @@ fun ExerciseHistoryList(
     history: List<SessionPoint>,
     modifier: Modifier = Modifier
 ) {
+    var noteDialogPoint by remember { mutableStateOf<SessionPoint?>(null) }
+
     if (history.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
@@ -581,11 +585,46 @@ fun ExerciseHistoryList(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(history) { point ->
-            Text(
-                "Session ${point.sessionIndex} (${point.date}): " +
-                        "${point.weight} lbs × ${point.reps} reps"
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    "Session ${point.sessionIndex} (${point.date}): " +
+                            "${point.weight} lbs × ${point.reps} reps"
+                )
+                if (!point.notes.isNullOrBlank()) {
+                    TextButton(
+                        onClick = { noteDialogPoint = point },
+                        shape = RectangleShape
+                    ) {
+                        Text("View notes")
+                    }
+                }
+            }
         }
+    }
+
+    val dialogPoint = noteDialogPoint
+    if (dialogPoint?.notes?.isNotBlank() == true) {
+        AlertDialog(
+            onDismissRequest = { noteDialogPoint = null },
+            title = {
+                Text("Notes for ${friendlyDate(dialogPoint.date, includeYear = true)}")
+            },
+            text = {
+                Text(dialogPoint.notes!!)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { noteDialogPoint = null },
+                    shape = RectangleShape
+                ) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 

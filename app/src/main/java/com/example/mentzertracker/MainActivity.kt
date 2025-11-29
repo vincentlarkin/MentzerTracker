@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -52,8 +53,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 import com.google.gson.Gson
@@ -87,6 +90,7 @@ class MainActivity : ComponentActivity() {
 // ---------- UI-ONLY MODELS ----------
 enum class ThemeMode { DARK, LIGHT }
 private val ScreenPadding = 16.dp
+private const val UI_SCALE_FACTOR = 0.94f
 
 private const val CUSTOM_EXERCISE_NAME_LIMIT = 40
 private const val KEY_THEME_MODE = "theme_mode"
@@ -97,7 +101,8 @@ data class SessionPoint(
     val sessionIndex: Int,
     val date: String,
     val weight: Float,
-    val reps: Int
+    val reps: Int,
+    val notes: String? = null
 )
 
 // ---------- SHARED PREFS KEYS / GSON ----------
@@ -303,6 +308,11 @@ private fun sanitizeImportLogs(rawLogs: List<WorkoutLogEntry>): List<WorkoutLogE
 fun MentzerApp() {
     val context = LocalContext.current
 
+    val parentDensity = LocalDensity.current
+    val scaledDensity = remember(parentDensity.density, parentDensity.fontScale) {
+        parentDensity.scaled(UI_SCALE_FACTOR)
+    }
+
     val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
     val allowPartialSessionsState = remember { mutableStateOf(allowPartialSessions(context)) }
     val showSettingsState = remember { mutableStateOf(false) }
@@ -315,8 +325,9 @@ fun MentzerApp() {
     val showNotifications = showNotificationsState.value
     val resetKey = resetKeyState.value
 
-    MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
-        ApplySystemBarStyle(themeMode = themeMode)
+    CompositionLocalProvider(LocalDensity provides scaledDensity) {
+        MentzerTrackerTheme(darkTheme = themeMode == ThemeMode.DARK) {
+            ApplySystemBarStyle(themeMode = themeMode)
 
         val handleImport: (ThemeMode) -> Unit = { importedMode ->
             themeModeState.value = importedMode
@@ -361,6 +372,7 @@ fun MentzerApp() {
                     allowPartialSessions = allowPartialSessions
                 )
             }
+        }
         }
     }
 }
@@ -853,6 +865,15 @@ private fun generateCustomExerciseId(existingIds: Set<String>): String {
     return candidate
 }
 
+private fun Density.scaled(scaleFactor: Float): Density {
+    val baseDensity = density
+    val baseFontScale = fontScale
+    return object : Density {
+        override val density: Float = baseDensity * scaleFactor
+        override val fontScale: Float = baseFontScale * scaleFactor
+    }
+}
+
 
 // ---------- MAIN TRACKER APP (INCLUDING FULL PROGRESS NAV) ----------
 
@@ -983,13 +1004,14 @@ fun WorkoutTrackerApp(
                  template = currentTemplate,
                  exercisesById = exercisesById,
                 allowPartialSessions = allowPartialSessions,
-                 onSave = { sets ->
+                onSave = { sets, notes ->
                      val entry = WorkoutLogEntry(
                          id = System.currentTimeMillis(),
                          templateId = currentTemplate.id,
                          date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                              .format(Date()),
-                         sets = sets
+                        sets = sets,
+                        notes = notes?.takeIf { it.isNotBlank() }
                      )
                      logEntries.add(entry)
                      saveWorkoutLogs(context, logEntries)

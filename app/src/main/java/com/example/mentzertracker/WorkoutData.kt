@@ -23,7 +23,8 @@ data class WorkoutLogEntry(
     val id: Long,              // timestamp
     val templateId: String,    // "A" or "B"
     val date: String,
-    val sets: List<ExerciseSetEntry>
+    val sets: List<ExerciseSetEntry>,
+    val notes: String? = null
 )
 
 // User-configurable A/B setup, stored in SharedPreferences
