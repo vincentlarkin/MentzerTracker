@@ -349,19 +349,6 @@ fun NovaSettingsScreen(
                     textColor = onSurfaceColor,
                     secondaryColor = onSurfaceVariant
                 )
-                
-                SettingsDivider(outlineColor)
-                
-                SettingsRow(
-                    icon = Icons.Default.Refresh,
-                    title = "Reset All Data",
-                    subtitle = "Start fresh",
-                    titleColor = errorColor,
-                    onClick = { showResetConfirm = true },
-                    surfaceVariant = surfaceVariant,
-                    textColor = onSurfaceColor,
-                    secondaryColor = onSurfaceVariant
-                )
             }
             
             Spacer(Modifier.height(24.dp))
@@ -418,6 +405,19 @@ fun NovaSettingsScreen(
                                     NotificationHelper.triggerTestNotification(context)
                                 }
                             },
+                            surfaceVariant = surfaceVariant,
+                            textColor = onSurfaceColor,
+                            secondaryColor = onSurfaceVariant
+                        )
+                        
+                        SettingsDivider(outlineColor)
+                        
+                        SettingsRow(
+                            icon = Icons.Default.Refresh,
+                            title = "Reset All Data",
+                            subtitle = "Delete all workouts and start fresh",
+                            titleColor = errorColor,
+                            onClick = { showResetConfirm = true },
                             surfaceVariant = surfaceVariant,
                             textColor = onSurfaceColor,
                             secondaryColor = onSurfaceVariant
