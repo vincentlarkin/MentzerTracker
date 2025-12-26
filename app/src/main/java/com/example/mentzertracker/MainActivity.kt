@@ -68,7 +68,9 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import com.vincentlarkin.mentzertracker.novanotes.NovaBuilderScreen
 import com.vincentlarkin.mentzertracker.novanotes.NovaNotesScreen
+import com.vincentlarkin.mentzertracker.novanotes.NovaSplashScreen
 import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import java.text.SimpleDateFormat
@@ -411,7 +413,7 @@ fun AppRoot(
 
     when {
         showSplash -> {
-            SplashScreen(
+            NovaSplashScreen(
                 onStart = {
                     setHasSeenSplash(context)
                     showSplashState.value = false
@@ -422,7 +424,7 @@ fun AppRoot(
         }
 
         editingConfig || !hasConfig -> {
-            WorkoutBuilderScreen(
+            NovaBuilderScreen(
                 initialConfig = workoutConfig,
                 onDone = { newConfig ->
                     workoutConfigState.value = newConfig
