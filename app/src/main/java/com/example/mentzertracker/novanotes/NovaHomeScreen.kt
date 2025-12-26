@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
+import com.vincentlarkin.mentzertracker.UserWorkoutConfig
 import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.allExercises
 import kotlinx.coroutines.delay
@@ -84,11 +85,27 @@ import java.util.concurrent.TimeUnit
 
 @Composable
 fun NovaHomeScreen(
+    workoutConfig: UserWorkoutConfig,
     customExercises: List<Exercise>,
     recentLogs: List<WorkoutLogEntry>,
     onSave: (List<ExerciseSetEntry>, String?, String) -> Unit, // Added templateId parameter
     modifier: Modifier = Modifier
 ) {
+    // Build exercise lookup
+    val allAvailableExercises = remember(customExercises) {
+        (allExercises + customExercises).distinctBy { it.id }
+    }
+    val exercisesById = remember(allAvailableExercises) {
+        allAvailableExercises.associateBy { it.id }
+    }
+    
+    // Get exercise names for A and B workouts
+    val workoutAExercises = remember(workoutConfig, exercisesById) {
+        workoutConfig.workoutAExerciseIds.mapNotNull { exercisesById[it]?.name }
+    }
+    val workoutBExercises = remember(workoutConfig, exercisesById) {
+        workoutConfig.workoutBExerciseIds.mapNotNull { exercisesById[it]?.name }
+    }
     var inputText by remember { mutableStateOf("") }
     var showSuccess by remember { mutableStateOf(false) }
     var showExamplesPopup by remember { mutableStateOf(false) }
@@ -146,11 +163,6 @@ fun NovaHomeScreen(
             delay(1200)
             showSuccess = false
         }
-    }
-    
-    // Generate dynamic examples based on actual exercises
-    val allAvailableExercises = remember(customExercises) {
-        (allExercises + customExercises).distinctBy { it.id }
     }
     
     val exampleHints = remember(customExercises) {
@@ -297,6 +309,8 @@ fun NovaHomeScreen(
                 lastWorkoutA = lastWorkoutA,
                 lastWorkoutB = lastWorkoutB,
                 suggestedNext = suggestedNext,
+                workoutAExercises = workoutAExercises,
+                workoutBExercises = workoutBExercises,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -550,6 +564,8 @@ private fun ScheduleCard(
     lastWorkoutA: WorkoutLogEntry?,
     lastWorkoutB: WorkoutLogEntry?,
     suggestedNext: String,
+    workoutAExercises: List<String>,
+    workoutBExercises: List<String>,
     modifier: Modifier = Modifier,
     surfaceColor: Color,
     primaryColor: Color,
@@ -585,6 +601,16 @@ private fun ScheduleCard(
             }
         } catch (e: Exception) {
             ""
+        }
+    }
+    
+    // Get exercises for the suggested workout
+    val suggestedExercises = if (suggestedNext == "A") workoutAExercises else workoutBExercises
+    val exercisesSummary = remember(suggestedExercises) {
+        if (suggestedExercises.isEmpty()) ""
+        else suggestedExercises.joinToString(" · ") { 
+            // Shorten exercise names for display
+            it.split(" ").first()
         }
     }
     
@@ -707,7 +733,7 @@ private fun ScheduleCard(
             
             Spacer(Modifier.height(12.dp))
             
-            // Next workout suggestion
+            // Next workout suggestion with exercises
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -715,14 +741,27 @@ private fun ScheduleCard(
                     .background(primaryColor.copy(alpha = 0.1f))
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
-                Text(
-                    "→ $nextWorkoutHint",
-                    style = TextStyle(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = primaryColor
+                Column {
+                    Text(
+                        "→ $nextWorkoutHint",
+                        style = TextStyle(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = primaryColor
+                        )
                     )
-                )
+                    if (exercisesSummary.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            exercisesSummary,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = primaryColor.copy(alpha = 0.8f)
+                            )
+                        )
+                    }
+                }
             }
         }
     }

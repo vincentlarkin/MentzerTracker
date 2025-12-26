@@ -112,6 +112,7 @@ fun NovaAppShell(
             when (tab) {
                 NovaTab.LOG -> {
                     NovaHomeScreen(
+                        workoutConfig = config,
                         customExercises = config.customExercises,
                         recentLogs = logEntries.toList(),
                         onSave = { sets, notes, templateId ->
