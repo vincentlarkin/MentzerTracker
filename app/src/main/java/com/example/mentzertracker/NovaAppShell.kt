@@ -114,10 +114,10 @@ fun NovaAppShell(
                     NovaHomeScreen(
                         customExercises = config.customExercises,
                         recentLogs = logEntries.toList(),
-                        onSave = { sets, notes ->
+                        onSave = { sets, notes, templateId ->
                             val entry = WorkoutLogEntry(
                                 id = System.currentTimeMillis(),
-                                templateId = "nova",
+                                templateId = templateId,
                                 date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                                     .format(Date()),
                                 sets = sets,

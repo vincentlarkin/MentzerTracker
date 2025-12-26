@@ -42,6 +42,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,13 +78,15 @@ import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.allExercises
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun NovaHomeScreen(
     customExercises: List<Exercise>,
     recentLogs: List<WorkoutLogEntry>,
-    onSave: (List<ExerciseSetEntry>, String?) -> Unit,
+    onSave: (List<ExerciseSetEntry>, String?, String) -> Unit, // Added templateId parameter
     modifier: Modifier = Modifier
 ) {
     var inputText by remember { mutableStateOf("") }
@@ -101,6 +104,32 @@ fun NovaHomeScreen(
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    
+    // A/B workout tracking
+    val lastWorkoutA = remember(recentLogs) {
+        recentLogs.lastOrNull { it.templateId == "A" }
+    }
+    val lastWorkoutB = remember(recentLogs) {
+        recentLogs.lastOrNull { it.templateId == "B" }
+    }
+    
+    // Determine which workout is next based on dates
+    val suggestedNext = remember(lastWorkoutA, lastWorkoutB) {
+        when {
+            lastWorkoutA == null && lastWorkoutB == null -> "A"
+            lastWorkoutA == null -> "A"
+            lastWorkoutB == null -> "B"
+            else -> {
+                // Compare dates - suggest the older one
+                val dateA = parseDate(lastWorkoutA.date)
+                val dateB = parseDate(lastWorkoutB.date)
+                if (dateA == null || dateB == null) "A"
+                else if (dateA <= dateB) "A" else "B"
+            }
+        }
+    }
+    
+    var selectedWorkout by remember(suggestedNext) { mutableStateOf(suggestedNext) }
     
     val parseResult by remember(inputText) {
         derivedStateOf {
@@ -160,7 +189,7 @@ fun NovaHomeScreen(
                 .imePadding()
                 .verticalScroll(scrollState)
         ) {
-            // Header
+            // Header with A/B toggle
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -221,9 +250,11 @@ fun NovaHomeScreen(
                         onClick = {
                             if (hasValidSets && parseResult != null) {
                                 val sets = WorkoutParser.toSetEntries(parseResult!!.parsedExercises)
-                                onSave(sets, null)
+                                onSave(sets, null, selectedWorkout)
                                 showSuccess = true
                                 inputText = ""
+                                // Toggle to next workout
+                                selectedWorkout = if (selectedWorkout == "A") "B" else "A"
                             }
                         },
                         enabled = hasValidSets,
@@ -244,11 +275,45 @@ fun NovaHomeScreen(
                 }
             }
             
+            // A/B Workout Toggle
+            WorkoutToggle(
+                selectedWorkout = selectedWorkout,
+                onSelect = { selectedWorkout = it },
+                suggestedNext = suggestedNext,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                primaryColor = primaryColor,
+                surfaceColor = surfaceColor,
+                outlineColor = outlineColor,
+                textColor = onSurfaceColor,
+                secondaryColor = onSurfaceVariant
+            )
+            
+            Spacer(Modifier.height(16.dp))
+            
+            // Schedule Card
+            ScheduleCard(
+                lastWorkoutA = lastWorkoutA,
+                lastWorkoutB = lastWorkoutB,
+                suggestedNext = suggestedNext,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                surfaceColor = surfaceColor,
+                primaryColor = primaryColor,
+                outlineColor = outlineColor,
+                textColor = onSurfaceColor,
+                secondaryColor = onSurfaceVariant
+            )
+            
+            Spacer(Modifier.height(16.dp))
+            
             // Main input area - smaller height
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(160.dp)
                     .padding(horizontal = 20.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(surfaceColor)
@@ -305,13 +370,10 @@ fun NovaHomeScreen(
                         SuggestionChip(
                             text = suggestion,
                             onClick = {
-                                // Append the suggestion to the current line
                                 val lines = inputText.lines().toMutableList()
                                 if (lines.isEmpty()) {
                                     inputText = suggestion
                                 } else {
-                                    val lastLine = lines.last()
-                                    // If the line has content, replace the partial match
                                     lines[lines.lastIndex] = suggestion
                                     inputText = lines.joinToString("\n")
                                 }
@@ -348,25 +410,6 @@ fun NovaHomeScreen(
                         secondaryTextColor = onSurfaceVariant
                     )
                 }
-            }
-            
-            Spacer(Modifier.height(12.dp))
-            
-            // Last workout hint (when input is empty)
-            AnimatedVisibility(
-                visible = inputText.isEmpty() && recentLogs.isNotEmpty(),
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                LastWorkoutHint(
-                    logs = recentLogs,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    surfaceColor = surfaceVariant,
-                    textColor = onSurfaceColor,
-                    secondaryTextColor = onSurfaceVariant
-                )
             }
             
             Spacer(Modifier.height(100.dp)) // Bottom padding for nav bar
@@ -435,6 +478,251 @@ fun NovaHomeScreen(
                         )
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutToggle(
+    selectedWorkout: String,
+    onSelect: (String) -> Unit,
+    suggestedNext: String,
+    modifier: Modifier = Modifier,
+    primaryColor: Color,
+    surfaceColor: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        listOf("A", "B").forEach { workout ->
+            val isSelected = selectedWorkout == workout
+            val isSuggested = suggestedNext == workout
+            
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (isSelected) primaryColor else Color.Transparent
+                    )
+                    .clickable { onSelect(workout) }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        "Workout $workout",
+                        style = TextStyle(
+                            fontSize = 15.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else textColor
+                        )
+                    )
+                    if (isSuggested && !isSelected) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(primaryColor)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScheduleCard(
+    lastWorkoutA: WorkoutLogEntry?,
+    lastWorkoutB: WorkoutLogEntry?,
+    suggestedNext: String,
+    modifier: Modifier = Modifier,
+    surfaceColor: Color,
+    primaryColor: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color
+) {
+    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
+    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    
+    fun formatDate(dateStr: String?): String {
+        if (dateStr == null) return "Never"
+        return try {
+            val date = inputFormatter.parse(dateStr)
+            date?.let { dateFormatter.format(it) } ?: dateStr
+        } catch (e: Exception) {
+            dateStr
+        }
+    }
+    
+    fun daysAgo(dateStr: String?): String {
+        if (dateStr == null) return ""
+        return try {
+            val date = inputFormatter.parse(dateStr) ?: return ""
+            val now = Calendar.getInstance().time
+            val diff = now.time - date.time
+            val days = TimeUnit.MILLISECONDS.toDays(diff)
+            when {
+                days == 0L -> "today"
+                days == 1L -> "yesterday"
+                days < 7 -> "$days days ago"
+                else -> "${days / 7}w ago"
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+    
+    // Calculate suggested next date (e.g., if last A was 3 days ago, suggest A soon)
+    val nextWorkoutHint = remember(lastWorkoutA, lastWorkoutB, suggestedNext) {
+        val lastDate = if (suggestedNext == "A") lastWorkoutA?.date else lastWorkoutB?.date
+        if (lastDate == null) {
+            "Start with Workout $suggestedNext"
+        } else {
+            try {
+                val date = inputFormatter.parse(lastDate) ?: return@remember "Do Workout $suggestedNext"
+                val now = Calendar.getInstance().time
+                val daysSince = TimeUnit.MILLISECONDS.toDays(now.time - date.time)
+                when {
+                    daysSince >= 4 -> "Workout $suggestedNext is due!"
+                    daysSince >= 2 -> "Workout $suggestedNext ready"
+                    else -> "Rest day - $suggestedNext in ${2 - daysSince}d"
+                }
+            } catch (e: Exception) {
+                "Do Workout $suggestedNext"
+            }
+        }
+    }
+    
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Column {
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 12.dp)
+            ) {
+                Icon(
+                    Icons.Default.Schedule,
+                    contentDescription = null,
+                    tint = primaryColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Schedule",
+                    style = TextStyle(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = textColor
+                    )
+                )
+            }
+            
+            // A/B Status row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Workout A
+                Column {
+                    Text(
+                        "Workout A",
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = secondaryColor
+                        )
+                    )
+                    Text(
+                        formatDate(lastWorkoutA?.date),
+                        style = TextStyle(
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (suggestedNext == "A") primaryColor else textColor
+                        )
+                    )
+                    val agoA = daysAgo(lastWorkoutA?.date)
+                    if (agoA.isNotEmpty()) {
+                        Text(
+                            agoA,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                color = secondaryColor
+                            )
+                        )
+                    }
+                }
+                
+                // Workout B
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "Workout B",
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = secondaryColor
+                        )
+                    )
+                    Text(
+                        formatDate(lastWorkoutB?.date),
+                        style = TextStyle(
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (suggestedNext == "B") primaryColor else textColor
+                        )
+                    )
+                    val agoB = daysAgo(lastWorkoutB?.date)
+                    if (agoB.isNotEmpty()) {
+                        Text(
+                            agoB,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                color = secondaryColor
+                            )
+                        )
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(12.dp))
+            
+            // Next workout suggestion
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(primaryColor.copy(alpha = 0.1f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "→ $nextWorkoutHint",
+                    style = TextStyle(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = primaryColor
+                    )
+                )
             }
         }
     }
@@ -542,58 +830,6 @@ private fun ParsedPreviewCompact(
     }
 }
 
-@Composable
-private fun LastWorkoutHint(
-    logs: List<WorkoutLogEntry>,
-    modifier: Modifier = Modifier,
-    surfaceColor: Color,
-    textColor: Color,
-    secondaryTextColor: Color
-) {
-    val lastLog = logs.lastOrNull() ?: return
-    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
-    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    
-    val formattedDate = try {
-        val date = inputFormatter.parse(lastLog.date)
-        date?.let { dateFormatter.format(it) } ?: lastLog.date
-    } catch (e: Exception) {
-        lastLog.date
-    }
-    
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(surfaceColor)
-            .padding(14.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "📝",
-                fontSize = 16.sp
-            )
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(
-                    "Last: $formattedDate",
-                    style = TextStyle(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = textColor
-                    )
-                )
-                Text(
-                    "${lastLog.sets.size} sets logged",
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        color = secondaryTextColor
-                    )
-                )
-            }
-        }
-    }
-}
-
 data class ExampleHints(
     val placeholder: String,
     val examples: List<ExampleItem>
@@ -603,6 +839,14 @@ data class ExampleItem(
     val input: String,
     val output: String
 )
+
+private fun parseDate(dateStr: String): Long? {
+    return try {
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
+    } catch (e: Exception) {
+        null
+    }
+}
 
 private fun generateTypingSuggestions(
     currentInput: String,
