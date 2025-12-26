@@ -39,69 +39,88 @@ data class ParseResult(
 object WorkoutParser {
     
     // Aliases for common exercise name variations
+    // These map shorthand terms to exercise IDs defined in WorkoutData.kt
     private val exerciseAliases = mapOf(
-        // Bench variations
+        // Bench variations → "bench_press" (Flat Bench Press)
         "bench" to "bench_press",
         "bench press" to "bench_press",
         "flat bench" to "bench_press",
+        "flat" to "bench_press",
         "barbell bench" to "bench_press",
         "bb bench" to "bench_press",
         
-        // Incline
+        // Incline → "incline_press" (Incline Press)
         "incline" to "incline_press",
         "incline press" to "incline_press",
         "incline bench" to "incline_press",
         
-        // Squat
+        // Squat → "squat" (Smith Squat)
         "squat" to "squat",
         "squats" to "squat",
         "smith squat" to "squat",
         "smith" to "squat",
         
-        // Deadlift
+        // Deadlift → "deadlift" (Deadlift)
         "deadlift" to "deadlift",
         "dl" to "deadlift",
         "dead" to "deadlift",
         "deads" to "deadlift",
         
-        // Pulldown
+        // Pulldown → "pulldown" (Close-Grip Palm-Up Pulldown)
         "pulldown" to "pulldown",
         "pull down" to "pulldown",
         "lat pulldown" to "pulldown",
         "pulldowns" to "pulldown",
+        "lat" to "pulldown",
+        "lats" to "pulldown",
         
-        // Dips
+        // Dips → "dips" (Dips)
         "dips" to "dips",
         "dip" to "dips",
         "chest dips" to "dips",
         "tricep dips" to "dips",
         
-        // OHP
+        // OHP → "ohp" (Overhead Press)
         "ohp" to "ohp",
         "overhead press" to "ohp",
         "overhead" to "ohp",
         "shoulder press" to "ohp",
         "military press" to "ohp",
         "military" to "ohp",
+        "press" to "ohp",
         
-        // Row
+        // Row → "row" (Barbell Row)
         "row" to "row",
         "rows" to "row",
         "barbell row" to "row",
         "bb row" to "row",
         "bent over row" to "row",
         
-        // Leg press
+        // Leg press → "leg_press" (Leg Press)
         "leg press" to "leg_press",
         "legpress" to "leg_press",
+        "legs" to "leg_press",
         
-        // Calf raise
+        // Calf raise → "calf_raise" (Standing Calf Raise)
         "calf raise" to "calf_raise",
         "calf raises" to "calf_raise",
         "calves" to "calf_raise",
         "calf" to "calf_raise",
         "standing calf" to "calf_raise"
     )
+    
+    /**
+     * Get a display-friendly mapping of aliases to exercise names.
+     * Useful for showing users what shortcuts are available.
+     */
+    fun getAliasMap(availableExercises: List<Exercise>): Map<String, String> {
+        val exercisesById = availableExercises.associateBy { it.id }
+        return exerciseAliases.mapNotNull { (alias, id) ->
+            exercisesById[id]?.let { exercise ->
+                alias to exercise.name
+            }
+        }.toMap()
+    }
     
     /**
      * Parse multiline workout text into structured data.

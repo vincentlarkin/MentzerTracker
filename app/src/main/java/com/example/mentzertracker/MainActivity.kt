@@ -161,7 +161,7 @@ internal fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
     }
 }
 
-private fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
+internal fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = gson.toJson(logs)
     prefs.edit { putString(KEY_WORKOUT_LOGS, json) }
@@ -321,14 +321,10 @@ fun MentzerApp() {
 
     val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
     val allowPartialSessionsState = remember { mutableStateOf(allowPartialSessions(context)) }
-    val showSettingsState = remember { mutableStateOf(false) }
-    val showNotificationsState = remember { mutableStateOf(false) }
     val resetKeyState = remember { mutableStateOf(0) }
 
     val themeMode = themeModeState.value
     val allowPartialSessions = allowPartialSessionsState.value
-    val showSettings = showSettingsState.value
-    val showNotifications = showNotificationsState.value
     val resetKey = resetKeyState.value
 
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
@@ -339,13 +335,13 @@ fun MentzerApp() {
             themeModeState.value = importedMode
             allowPartialSessionsState.value = allowPartialSessions(context)
             resetKeyState.value = resetKeyState.value + 1
-            showSettingsState.value = false
         }
 
-        if (showSettings) {
-            SettingsScreen(
+        // Nova shell handles settings internally via bottom nav
+        key(resetKey) {
+            AppRoot(
                 themeMode = themeMode,
-                isPartialSessionsAllowed = allowPartialSessions,
+                allowPartialSessions = allowPartialSessions,
                 onThemeModeChange = { newMode ->
                     themeModeState.value = newMode
                     saveThemeMode(context, newMode)
@@ -360,24 +356,8 @@ fun MentzerApp() {
                     themeModeState.value = loadThemeMode(context)
                     allowPartialSessionsState.value = allowPartialSessions(context)
                     resetKeyState.value = resetKeyState.value + 1
-                    showSettingsState.value = false
-                },
-                onBack = { showSettingsState.value = false }
+                }
             )
-        } else {
-            if (showNotifications) {
-                NotificationSettingsDialog(
-                    onDismiss = { showNotificationsState.value = false }
-                )
-            }
-            key(resetKey) {
-                AppRoot(
-                    onOpenSettings = { showSettingsState.value = true },
-                    onOpenNotifications = { showNotificationsState.value = true },
-                    onImportBackup = handleImport,
-                    allowPartialSessions = allowPartialSessions
-                )
-            }
         }
         }
     }
@@ -403,10 +383,12 @@ private fun ApplySystemBarStyle(themeMode: ThemeMode) {
 
 @Composable
 fun AppRoot(
-    onOpenSettings: () -> Unit,
-    onOpenNotifications: () -> Unit,
+    themeMode: ThemeMode,
+    allowPartialSessions: Boolean,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onAllowPartialSessionsChange: (Boolean) -> Unit,
     onImportBackup: (ThemeMode) -> Unit,
-    allowPartialSessions: Boolean
+    onResetData: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -434,7 +416,7 @@ fun AppRoot(
                     setHasSeenSplash(context)
                     showSplashState.value = false
                 },
-                onOpenSettings = onOpenSettings,
+                onOpenSettings = { /* handled internally now */ },
                 onImportBackup = onImportBackup
             )
         }
@@ -450,17 +432,21 @@ fun AppRoot(
                 },
                 showBack = editingConfig && hasConfig,
                 onBack = { editingConfigState.value = false },
-                onOpenSettings = onOpenSettings
+                onOpenSettings = null
             )
         }
 
         else -> {
-            WorkoutTrackerApp(
+            // Use the new Nova shell with bottom navigation
+            NovaAppShell(
                 config = workoutConfig,
-                onEditWorkouts = { editingConfigState.value = true },
-                onOpenSettings = onOpenSettings,
-                onOpenNotifications = onOpenNotifications,
-                allowPartialSessions = allowPartialSessions
+                themeMode = themeMode,
+                isPartialSessionsAllowed = allowPartialSessions,
+                onThemeModeChange = onThemeModeChange,
+                onAllowPartialSessionsChange = onAllowPartialSessionsChange,
+                onImportBackup = onImportBackup,
+                onResetData = onResetData,
+                onEditWorkouts = { editingConfigState.value = true }
             )
         }
     }
