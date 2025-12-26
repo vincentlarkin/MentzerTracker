@@ -100,7 +100,7 @@ enum class ThemeMode { DARK, LIGHT }
 private val ScreenPadding = 16.dp
 private const val UI_SCALE_FACTOR = 0.94f
 
-private const val CUSTOM_EXERCISE_NAME_LIMIT = 40
+internal const val CUSTOM_EXERCISE_NAME_LIMIT = 40
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_ALLOW_PARTIAL_SESSIONS = "allow_partial_sessions"
 
