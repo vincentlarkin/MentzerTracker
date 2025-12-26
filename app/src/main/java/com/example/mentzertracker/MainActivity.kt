@@ -415,7 +415,7 @@ fun AppRoot(
         showSplash -> {
             NovaSplashScreen(
                 onStart = {
-                    setHasSeenSplash(context)
+                    // Don't persist yet - only mark as seen when they complete workout setup
                     showSplashState.value = false
                 },
                 onOpenSettings = { /* handled internally now */ },
@@ -431,6 +431,8 @@ fun AppRoot(
                     saveWorkoutConfig(context, newConfig)
                     hasConfigState.value = true
                     editingConfigState.value = false
+                    // Only now mark splash as seen - user completed full setup
+                    setHasSeenSplash(context)
                 },
                 showBack = editingConfig && hasConfig,
                 onBack = { editingConfigState.value = false },
