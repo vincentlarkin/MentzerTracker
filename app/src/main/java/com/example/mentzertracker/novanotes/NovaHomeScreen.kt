@@ -616,7 +616,14 @@ private fun generateTypingSuggestions(
     // Check if the line already looks complete (has numbers)
     if (lastLine.any { it.isDigit() }) return emptyList()
     
-    // Find matching exercises
+    // Different format templates to encourage variety
+    val formats = listOf(
+        { name: String -> "$name 135 3x8" },        // sets x reps format
+        { name: String -> "$name 185 @ 3x5" },      // @ sets x reps
+        { name: String -> "$name 225 x 5" },        // weight x reps
+        { name: String -> "$name 135 - 12, 10, 8" } // drop set style
+    )
+    
     val suggestions = mutableListOf<String>()
     
     // Common aliases to check
@@ -627,29 +634,46 @@ private fun generateTypingSuggestions(
         "ohp" to "ohp",
         "squat" to "squat",
         "row" to "row",
-        "pull" to "pulldown"
+        "pull" to "pulldown",
+        "incline" to "incline_press",
+        "inc" to "incline_press",
+        "lat" to "pulldown",
+        "calf" to "calf_raise",
+        "leg" to "leg_press"
     )
     
-    for (exercise in exercises) {
-        val nameLower = exercise.name.lowercase()
-        val nameWords = nameLower.split(" ")
-        
-        // Check if any word starts with what user typed
-        if (nameWords.any { it.startsWith(lastLine) } || nameLower.startsWith(lastLine)) {
-            // Suggest the shorthand + example format
-            val shortName = nameWords.first()
-            suggestions.add("$shortName 135 - 10, 8, 6")
-            if (suggestions.size >= 3) break
+    var matchedName: String? = null
+    
+    // Check aliases first
+    for ((alias, exerciseId) in aliases) {
+        if (alias.startsWith(lastLine)) {
+            exercises.find { it.id == exerciseId }?.let {
+                matchedName = alias
+            }
+            break
         }
     }
     
-    // Also suggest based on aliases
-    for ((alias, exerciseId) in aliases) {
-        if (alias.startsWith(lastLine) && suggestions.size < 4) {
-            val exercise = exercises.find { it.id == exerciseId }
-            if (exercise != null) {
-                suggestions.add("$alias 135 - 10, 8, 6")
+    // Then check exercise names
+    if (matchedName == null) {
+        for (exercise in exercises) {
+            val nameLower = exercise.name.lowercase()
+            val nameWords = nameLower.split(" ")
+            
+            if (nameWords.any { it.startsWith(lastLine) } || nameLower.startsWith(lastLine)) {
+                matchedName = nameWords.first()
+                break
             }
+        }
+    }
+    
+    // Generate varied format suggestions for the matched name
+    matchedName?.let { name ->
+        // Shuffle formats a bit based on input to add variety
+        val startIndex = name.length % formats.size
+        for (i in 0 until minOf(4, formats.size)) {
+            val formatIndex = (startIndex + i) % formats.size
+            suggestions.add(formats[formatIndex](name))
         }
     }
     
@@ -664,38 +688,46 @@ private fun generateExampleHints(customExercises: List<Exercise>): ExampleHints 
     val squat = available.find { it.id == "squat" || it.name.contains("squat", true) }
     val deadlift = available.find { it.id == "deadlift" || it.name.contains("dead", true) }
     val row = available.find { it.id == "row" || it.name.contains("row", true) }
+    val incline = available.find { it.id == "incline_press" || it.name.contains("incline", true) }
     
+    // Show varied formats in placeholder
     val placeholderLines = mutableListOf<String>()
-    bench?.let { placeholderLines.add("bench 225 - 8, 8, 6") }
-    squat?.let { placeholderLines.add("squat 315 x 5") }
-    deadlift?.let { placeholderLines.add("dl 405 3") }
+    bench?.let { placeholderLines.add("bench 225 3x8") }
+    squat?.let { placeholderLines.add("squat 315 @ 3x5") }
+    deadlift?.let { placeholderLines.add("dl 405 x 3") }
     
     if (placeholderLines.isEmpty()) {
-        // Fallback with first available
         available.firstOrNull()?.let {
             val shortName = it.name.split(" ").first().lowercase()
-            placeholderLines.add("$shortName 135 - 10, 10, 8")
+            placeholderLines.add("$shortName 135 3x10")
         }
     }
     
     val examples = mutableListOf<ExampleItem>()
     
+    // Show different formats
+    incline?.let {
+        examples.add(ExampleItem(
+            "incline 185 @ 3x5",
+            "→ ${it.name}: 3 sets of 5 @ 185lbs"
+        ))
+    }
     bench?.let {
         examples.add(ExampleItem(
-            "bench 225 - 8, 8, 6",
-            "→ ${it.name}: 225lbs × 8, 8, 6"
+            "bench 225 3x8",
+            "→ ${it.name}: 3 sets of 8 @ 225lbs"
         ))
     }
     squat?.let {
         examples.add(ExampleItem(
-            "squat 3x5 @ 315",
-            "→ ${it.name}: 3 sets of 5 @ 315lbs"
+            "squat 315 x 5",
+            "→ ${it.name}: 315lbs × 5 reps"
         ))
     }
     deadlift?.let {
         examples.add(ExampleItem(
-            "dl 405 x 3",
-            "→ ${it.name}: 405lbs × 3"
+            "dl 405 - 5, 3, 1",
+            "→ ${it.name}: 405lbs × 5, 3, 1"
         ))
     }
     row?.let {
@@ -704,12 +736,6 @@ private fun generateExampleHints(customExercises: List<Exercise>): ExampleHints 
             "→ ${it.name}: 185lbs × 12, 10, 8"
         ))
     }
-    
-    // Add format examples
-    examples.add(ExampleItem(
-        "ohp 135 8",
-        "→ Overhead Press: 135lbs × 8"
-    ))
     
     return ExampleHints(
         placeholder = placeholderLines.joinToString("\n"),
