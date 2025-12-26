@@ -18,18 +18,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -63,6 +68,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import com.vincentlarkin.mentzertracker.novanotes.NovaNotesScreen
 import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import java.text.SimpleDateFormat
@@ -888,6 +894,7 @@ fun WorkoutTrackerApp(
 ) {
     val context = LocalContext.current
     var selectedTemplateId by remember { mutableStateOf("A") }
+    var showNovaNotesState by remember { mutableStateOf(false) }
 
     val combinedExercises = remember(config) {
         (allExercises + config.customExercises).distinctBy { it.id }
@@ -922,12 +929,43 @@ fun WorkoutTrackerApp(
     val showFullProgressState = remember { mutableStateOf(false) }
     val fullScreenExerciseIdState = remember { mutableStateOf<String?>(null) }
     val showFullProgress = showFullProgressState.value
+    val showNovaNotes = showNovaNotesState
+
+    // Handle back for Nova Notes
+    if (showNovaNotes) {
+        BackHandler {
+            showNovaNotesState = false
+        }
+    }
 
     if (showFullProgress) {
         BackHandler {
             showFullProgressState.value = false
             fullScreenExerciseIdState.value = null
         }
+    }
+
+    // Nova Notes fullscreen
+    if (showNovaNotes) {
+        NovaNotesScreen(
+            customExercises = config.customExercises,
+            onSave = { sets, notes ->
+                val currentTemplate = templates.firstOrNull { it.id == selectedTemplateId }
+                    ?: templates.firstOrNull()
+                val entry = WorkoutLogEntry(
+                    id = System.currentTimeMillis(),
+                    templateId = currentTemplate?.id ?: "A",
+                    date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                        .format(Date()),
+                    sets = sets,
+                    notes = notes?.takeIf { it.isNotBlank() }
+                )
+                logEntries.add(entry)
+                saveWorkoutLogs(context, logEntries)
+            },
+            onBack = { showNovaNotesState = false }
+        )
+        return
     }
 
     Scaffold(
@@ -974,6 +1012,22 @@ fun WorkoutTrackerApp(
                         }
                     }
                 )
+            }
+        },
+        floatingActionButton = {
+            if (!showFullProgress) {
+                LargeFloatingActionButton(
+                    onClick = { showNovaNotesState = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Quick Log",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
     )
