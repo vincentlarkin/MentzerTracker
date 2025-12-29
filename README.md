@@ -13,9 +13,9 @@ A flexible workout logging app for Android, with optional A/B workout tracking i
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/Screenshot_20251229_140807.png" alt="Home screen" width="260">
-  <img src="docs/images/Screenshot_20251229_140928.png" alt="Progress view" width="260">
-  <img src="docs/images/Screenshot_20251229_140950.png" alt="Workout builder" width="260">
+  <img src="docs/images/home.png" alt="Home screen" width="260">
+  <img src="docs/images/progress.png" alt="Progress view" width="260">
+  <img src="docs/images/builder.png" alt="Workout builder" width="260">
 </p>
 
 ## Quick Start
