@@ -1,4 +1,7 @@
-package com.vincentlarkin.mentzertracker
+package com.vincentlarkin.mentzertracker.legacy
+
+import com.vincentlarkin.mentzertracker.ThemeMode
+import com.vincentlarkin.mentzertracker.importBackupFromJson
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult

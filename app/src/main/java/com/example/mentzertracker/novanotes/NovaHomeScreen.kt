@@ -1,7 +1,9 @@
 package com.vincentlarkin.mentzertracker.novanotes
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -9,7 +11,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,13 +45,17 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -64,6 +73,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -74,9 +84,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
+import com.vincentlarkin.mentzertracker.NotificationHelper
+import com.vincentlarkin.mentzertracker.NotificationSettingsDialog
 import com.vincentlarkin.mentzertracker.UserWorkoutConfig
 import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.allExercises
+import com.vincentlarkin.mentzertracker.loadWorkoutInterval
+import com.vincentlarkin.mentzertracker.saveWorkoutInterval
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -106,10 +120,24 @@ fun NovaHomeScreen(
     val workoutBExercises = remember(workoutConfig, exercisesById) {
         workoutConfig.workoutBExerciseIds.mapNotNull { exercisesById[it]?.name }
     }
+    val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     var showSuccess by remember { mutableStateOf(false) }
     var showExamplesPopup by remember { mutableStateOf(false) }
+    var showNotificationDialog by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    
+    // Load workout interval preference (separate from notifications)
+    var workoutIntervalDays by remember { mutableStateOf(loadWorkoutInterval(context)) }
+    
+    // Load notification state for bell icon
+    val notificationsEnabled = remember { NotificationHelper.loadPreferences(context).enabled }
+    
+    // Callback to update interval
+    val onIntervalChange: (Int) -> Unit = { newInterval ->
+        workoutIntervalDays = newInterval
+        saveWorkoutInterval(context, newInterval)
+    }
     val scrollState = rememberScrollState()
     
     // Get theme colors
@@ -122,7 +150,12 @@ fun NovaHomeScreen(
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     
-    // A/B workout tracking
+    // Track the most recent workout (regardless of A/B)
+    val lastWorkout = remember(recentLogs) {
+        recentLogs.maxByOrNull { it.id } // Most recent by timestamp
+    }
+    
+    // A/B workout tracking (secondary)
     val lastWorkoutA = remember(recentLogs) {
         recentLogs.lastOrNull { it.templateId == "A" }
     }
@@ -130,14 +163,13 @@ fun NovaHomeScreen(
         recentLogs.lastOrNull { it.templateId == "B" }
     }
     
-    // Determine which workout is next based on dates
+    // Suggest next workout based on which is older (A/B), but this is optional
     val suggestedNext = remember(lastWorkoutA, lastWorkoutB) {
         when {
             lastWorkoutA == null && lastWorkoutB == null -> "A"
             lastWorkoutA == null -> "A"
             lastWorkoutB == null -> "B"
             else -> {
-                // Compare dates - suggest the older one
                 val dateA = parseDate(lastWorkoutA.date)
                 val dateB = parseDate(lastWorkoutB.date)
                 if (dateA == null || dateB == null) "A"
@@ -231,6 +263,22 @@ fun NovaHomeScreen(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Notification bell button
+                    IconButton(
+                        onClick = { showNotificationDialog = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(surfaceColor)
+                    ) {
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = "Notifications",
+                            tint = if (notificationsEnabled) primaryColor else onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    
                     // Help button
                     IconButton(
                         onClick = { showExamplesPopup = true },
@@ -304,13 +352,12 @@ fun NovaHomeScreen(
             
             Spacer(Modifier.height(16.dp))
             
-            // Schedule Card
+            // Schedule Card - Simple: last workout and next due
             ScheduleCard(
-                lastWorkoutA = lastWorkoutA,
-                lastWorkoutB = lastWorkoutB,
-                suggestedNext = suggestedNext,
-                workoutAExercises = workoutAExercises,
-                workoutBExercises = workoutBExercises,
+                lastWorkout = lastWorkout,
+                totalWorkouts = recentLogs.size,
+                workoutIntervalDays = workoutIntervalDays,
+                onIntervalChange = onIntervalChange,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -494,6 +541,13 @@ fun NovaHomeScreen(
                 }
             }
         }
+        
+        // Notification settings dialog
+        if (showNotificationDialog) {
+            NotificationSettingsDialog(
+                onDismiss = { showNotificationDialog = false }
+            )
+        }
     }
 }
 
@@ -509,49 +563,112 @@ private fun WorkoutToggle(
     textColor: Color,
     secondaryColor: Color
 ) {
-    Row(
+    // Animated sliding indicator
+    val indicatorOffset by animateDpAsState(
+        targetValue = if (selectedWorkout == "A") 0.dp else 1.dp, // Used as a flag
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "indicator"
+    )
+    
+    Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(surfaceColor)
             .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(4.dp)
     ) {
-        listOf("A", "B").forEach { workout ->
-            val isSelected = selectedWorkout == workout
-            val isSuggested = suggestedNext == workout
-            
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        if (isSelected) primaryColor else Color.Transparent
-                    )
-                    .clickable { onSelect(workout) }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("A", "B").forEach { workout ->
+                val isSelected = selectedWorkout == workout
+                val isSuggested = suggestedNext == workout
+                
+                // Animated scale for tap feedback
+                val scale by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else 0.98f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "scale"
+                )
+                
+                // Animated background alpha
+                val bgAlpha by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else 0f,
+                    animationSpec = tween(200),
+                    label = "bgAlpha"
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .scale(scale)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(primaryColor.copy(alpha = bgAlpha))
+                        .then(
+                            if (!isSelected) {
+                                Modifier.border(
+                                    1.dp,
+                                    outlineColor.copy(alpha = 0.2f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                            } else Modifier
+                        )
+                        .clickable { onSelect(workout) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "Workout $workout",
-                        style = TextStyle(
-                            fontSize = 15.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                            color = if (isSelected) Color.White else textColor
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        // Animated icon for selected state
+                        AnimatedVisibility(
+                            visible = isSelected,
+                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
+                            exit = scaleOut() + fadeOut()
+                        ) {
+                            Row {
+                                Icon(
+                                    Icons.Default.FitnessCenter,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+                        }
+                        
+                        Text(
+                            "Workout $workout",
+                            style = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (isSelected) Color.White else textColor
+                            )
                         )
-                    )
-                    if (isSuggested && !isSelected) {
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(primaryColor)
-                        )
+                        
+                        // Suggested indicator (dot) for non-selected
+                        AnimatedVisibility(
+                            visible = isSuggested && !isSelected,
+                            enter = scaleIn() + fadeIn(),
+                            exit = scaleOut() + fadeOut()
+                        ) {
+                            Row {
+                                Spacer(Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(primaryColor)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -561,11 +678,10 @@ private fun WorkoutToggle(
 
 @Composable
 private fun ScheduleCard(
-    lastWorkoutA: WorkoutLogEntry?,
-    lastWorkoutB: WorkoutLogEntry?,
-    suggestedNext: String,
-    workoutAExercises: List<String>,
-    workoutBExercises: List<String>,
+    lastWorkout: WorkoutLogEntry?,
+    totalWorkouts: Int,
+    workoutIntervalDays: Int,
+    onIntervalChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
     surfaceColor: Color,
     primaryColor: Color,
@@ -573,11 +689,12 @@ private fun ScheduleCard(
     textColor: Color,
     secondaryColor: Color
 ) {
+    var showIntervalPicker by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
     val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     
     fun formatDate(dateStr: String?): String {
-        if (dateStr == null) return "Never"
+        if (dateStr == null) return "No workouts yet"
         return try {
             val date = inputFormatter.parse(dateStr)
             date?.let { dateFormatter.format(it) } ?: dateStr
@@ -604,33 +721,39 @@ private fun ScheduleCard(
         }
     }
     
-    // Get exercises for the suggested workout
-    val suggestedExercises = if (suggestedNext == "A") workoutAExercises else workoutBExercises
-    val exercisesSummary = remember(suggestedExercises) {
-        if (suggestedExercises.isEmpty()) ""
-        else suggestedExercises.joinToString(" · ") { 
-            // Shorten exercise names for display
-            it.split(" ").first()
-        }
-    }
-    
-    // Calculate suggested next date (e.g., if last A was 3 days ago, suggest A soon)
-    val nextWorkoutHint = remember(lastWorkoutA, lastWorkoutB, suggestedNext) {
-        val lastDate = if (suggestedNext == "A") lastWorkoutA?.date else lastWorkoutB?.date
-        if (lastDate == null) {
-            "Start with Workout $suggestedNext"
+    // Calculate next workout status
+    val nextWorkoutStatus = remember(lastWorkout, workoutIntervalDays) {
+        if (lastWorkout == null) {
+            "Ready to start!" to "Anytime"
         } else {
             try {
-                val date = inputFormatter.parse(lastDate) ?: return@remember "Do Workout $suggestedNext"
-                val now = Calendar.getInstance().time
-                val daysSince = TimeUnit.MILLISECONDS.toDays(now.time - date.time)
-                when {
-                    daysSince >= 4 -> "Workout $suggestedNext is due!"
-                    daysSince >= 2 -> "Workout $suggestedNext ready"
-                    else -> "Rest day - $suggestedNext in ${2 - daysSince}d"
+                val lastDate = inputFormatter.parse(lastWorkout.date) ?: return@remember "Time to train" to "Soon"
+                val calendar = Calendar.getInstance().apply {
+                    time = lastDate
+                    add(Calendar.DAY_OF_YEAR, workoutIntervalDays)
                 }
+                val nextDate = calendar.time
+                val now = Calendar.getInstance().time
+                val daysUntil = TimeUnit.MILLISECONDS.toDays(nextDate.time - now.time)
+                
+                val hint = when {
+                    daysUntil < 0 -> "Time to train!"
+                    daysUntil == 0L -> "Workout day!"
+                    daysUntil == 1L -> "Workout tomorrow"
+                    daysUntil <= 2 -> "Rest day"
+                    else -> "Rest • ${daysUntil}d until next"
+                }
+                
+                val dateLabel = when {
+                    daysUntil < 0 -> "Overdue"
+                    daysUntil == 0L -> "Today"
+                    daysUntil == 1L -> "Tomorrow"
+                    else -> dateFormatter.format(nextDate)
+                }
+                
+                hint to dateLabel
             } catch (e: Exception) {
-                "Do Workout $suggestedNext"
+                "Time to train" to "Soon"
             }
         }
     }
@@ -643,55 +766,75 @@ private fun ScheduleCard(
             .padding(16.dp)
     ) {
         Column {
-            // Header
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 12.dp)
-            ) {
-                Icon(
-                    Icons.Default.Schedule,
-                    contentDescription = null,
-                    tint = primaryColor,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Schedule",
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = textColor
-                    )
-                )
-            }
-            
-            // A/B Status row
+            // Header with workout count
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Workout A
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Schedule",
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor
+                        )
+                    )
+                }
+                // Workout count badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(primaryColor.copy(alpha = 0.1f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "$totalWorkouts logged",
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = primaryColor
+                        )
+                    )
+                }
+            }
+            
+            Spacer(Modifier.height(14.dp))
+            
+            // Last workout row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column {
                     Text(
-                        "Workout A",
+                        "Last workout",
                         style = TextStyle(
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
                             color = secondaryColor
                         )
                     )
                     Text(
-                        formatDate(lastWorkoutA?.date),
+                        formatDate(lastWorkout?.date),
                         style = TextStyle(
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (suggestedNext == "A") primaryColor else textColor
+                            color = textColor
                         )
                     )
-                    val agoA = daysAgo(lastWorkoutA?.date)
-                    if (agoA.isNotEmpty()) {
+                    val ago = daysAgo(lastWorkout?.date)
+                    if (ago.isNotEmpty()) {
                         Text(
-                            agoA,
+                            ago,
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 color = secondaryColor
@@ -700,71 +843,209 @@ private fun ScheduleCard(
                     }
                 }
                 
-                // Workout B
+                // Next due
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        "Workout B",
+                        "Next due",
                         style = TextStyle(
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
                             color = secondaryColor
                         )
                     )
                     Text(
-                        formatDate(lastWorkoutB?.date),
+                        nextWorkoutStatus.second,
                         style = TextStyle(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (suggestedNext == "B") primaryColor else textColor
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (nextWorkoutStatus.second == "Overdue" || nextWorkoutStatus.second == "Today")
+                                primaryColor else textColor
                         )
                     )
-                    val agoB = daysAgo(lastWorkoutB?.date)
-                    if (agoB.isNotEmpty()) {
-                        Text(
-                            agoB,
-                            style = TextStyle(
-                                fontSize = 11.sp,
-                                color = secondaryColor
-                            )
-                        )
-                    }
                 }
             }
             
             Spacer(Modifier.height(12.dp))
             
-            // Next workout suggestion with exercises
+            // Status hint
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(primaryColor.copy(alpha = 0.1f))
+                    .background(
+                        if (nextWorkoutStatus.second == "Overdue" || nextWorkoutStatus.second == "Today")
+                            primaryColor.copy(alpha = 0.15f)
+                        else outlineColor.copy(alpha = 0.08f)
+                    )
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
-                Column {
+                Text(
+                    "→ ${nextWorkoutStatus.first}",
+                    style = TextStyle(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (nextWorkoutStatus.second == "Overdue" || nextWorkoutStatus.second == "Today")
+                            primaryColor else textColor.copy(alpha = 0.8f)
+                    )
+                )
+            }
+            
+            Spacer(Modifier.height(10.dp))
+            
+            // Interval picker row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(outlineColor.copy(alpha = 0.08f))
+                    .clickable { showIntervalPicker = true }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Workout interval",
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        color = secondaryColor
+                    )
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        "→ $nextWorkoutHint",
+                        when (workoutIntervalDays) {
+                            1 -> "Daily"
+                            7 -> "Weekly"
+                            14 -> "Every 2 weeks"
+                            else -> "Every $workoutIntervalDays days"
+                        },
                         style = TextStyle(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
                             color = primaryColor
                         )
                     )
-                    if (exercisesSummary.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            exercisesSummary,
-                            style = TextStyle(
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Normal,
-                                color = primaryColor.copy(alpha = 0.8f)
-                            )
-                        )
-                    }
+                    Icon(
+                        Icons.Default.ExpandMore,
+                        contentDescription = "Change interval",
+                        tint = primaryColor,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
     }
+    
+    // Interval picker dialog
+    if (showIntervalPicker) {
+        IntervalPickerDialog(
+            currentInterval = workoutIntervalDays,
+            onIntervalSelected = { days ->
+                onIntervalChange(days)
+                showIntervalPicker = false
+            },
+            onDismiss = { showIntervalPicker = false },
+            surfaceColor = surfaceColor,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            outlineColor = outlineColor
+        )
+    }
+}
+
+@Composable
+private fun IntervalPickerDialog(
+    currentInterval: Int,
+    onIntervalSelected: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    surfaceColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    outlineColor: Color
+) {
+    val intervalOptions = listOf(
+        3 to "Every 3 days",
+        4 to "Every 4 days", 
+        5 to "Every 5 days",
+        7 to "Weekly (7 days)",
+        10 to "Every 10 days",
+        14 to "Every 2 weeks"
+    )
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = surfaceColor,
+        title = {
+            Text(
+                "Workout Interval",
+                style = TextStyle(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor
+                )
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "How often do you want to work out?",
+                    style = TextStyle(
+                        fontSize = 14.sp,
+                        color = textColor.copy(alpha = 0.7f)
+                    ),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                intervalOptions.forEach { (days, label) ->
+                    val isSelected = currentInterval == days
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (isSelected) primaryColor.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) primaryColor else outlineColor.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .clickable { onIntervalSelected(days) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            label,
+                            style = TextStyle(
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isSelected) primaryColor else textColor
+                            )
+                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = primaryColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = textColor.copy(alpha = 0.7f))
+            }
+        }
+    )
 }
 
 @Composable
@@ -893,21 +1174,10 @@ private fun generateTypingSuggestions(
 ): List<String> {
     if (currentInput.isBlank()) return emptyList()
     
-    val lastLine = currentInput.lines().lastOrNull()?.trim()?.lowercase() ?: return emptyList()
+    val lastLine = currentInput.lines().lastOrNull()?.trim() ?: return emptyList()
     if (lastLine.isEmpty()) return emptyList()
     
-    // Check if the line already looks complete (has numbers)
-    if (lastLine.any { it.isDigit() }) return emptyList()
-    
-    // Different format templates to encourage variety
-    val formats = listOf(
-        { name: String -> "$name 135 3x8" },        // sets x reps format
-        { name: String -> "$name 185 @ 3x5" },      // @ sets x reps
-        { name: String -> "$name 225 x 5" },        // weight x reps
-        { name: String -> "$name 135 - 12, 10, 8" } // drop set style
-    )
-    
-    val suggestions = mutableListOf<String>()
+    val lastLineLower = lastLine.lowercase()
     
     // Common aliases to check
     val aliases = mapOf(
@@ -925,11 +1195,73 @@ private fun generateTypingSuggestions(
         "leg" to "leg_press"
     )
     
+    // Check if the line has a weight number - if so, adapt suggestions to use that weight
+    val hasWeight = lastLineLower.any { it.isDigit() }
+    
+    if (hasWeight) {
+        // Parse the exercise name and weight from input like "bench 115" or "bench 115 x"
+        val parts = lastLineLower.split(Regex("\\s+"))
+        if (parts.size >= 2) {
+            val exercisePart = parts[0]
+            val weightPart = parts.find { it.all { c -> c.isDigit() || c == '.' } }
+            
+            if (weightPart != null) {
+                val weight = weightPart.toIntOrNull() ?: weightPart.toFloatOrNull()?.toInt() ?: 135
+                
+                // Find which exercise this matches
+                var matchedName: String? = null
+                
+                // Check aliases first
+                for ((alias, exerciseId) in aliases) {
+                    if (exercisePart.startsWith(alias) || alias.startsWith(exercisePart)) {
+                        exercises.find { it.id == exerciseId }?.let {
+                            matchedName = alias
+                        }
+                        break
+                    }
+                }
+                
+                // Check exercise names
+                if (matchedName == null) {
+                    for (exercise in exercises) {
+                        val nameParts = exercise.name.lowercase().split(" ")
+                        if (nameParts.any { it.startsWith(exercisePart) }) {
+                            matchedName = nameParts.first()
+                            break
+                        }
+                    }
+                }
+                
+                matchedName?.let { name ->
+                    // Generate suggestions with the user's weight
+                    return listOf(
+                        "$name $weight x 6",
+                        "$name $weight x 8",
+                        "$name $weight 3x8",
+                        "$name $weight 3x5"
+                    )
+                }
+            }
+        }
+        // If we couldn't parse it but it has numbers, don't show suggestions
+        return emptyList()
+    }
+    
+    // No weight yet - show suggestions with default weights
+    val formats = listOf(
+        { name: String -> "$name 135 3x8" },        // sets x reps format
+        { name: String -> "$name 185 @ 3x5" },      // @ sets x reps
+        { name: String -> "$name 225 x 5" },        // weight x reps
+        { name: String -> "$name 135 - 12, 10, 8" } // drop set style
+    )
+    
+    val suggestions = mutableListOf<String>()
+    
     var matchedName: String? = null
     
     // Check aliases first
     for ((alias, exerciseId) in aliases) {
-        if (alias.startsWith(lastLine)) {
+        if (alias.startsWith(lastLineLower)) {
             exercises.find { it.id == exerciseId }?.let {
                 matchedName = alias
             }
@@ -943,7 +1275,7 @@ private fun generateTypingSuggestions(
             val nameLower = exercise.name.lowercase()
             val nameWords = nameLower.split(" ")
             
-            if (nameWords.any { it.startsWith(lastLine) } || nameLower.startsWith(lastLine)) {
+            if (nameWords.any { it.startsWith(lastLineLower) } || nameLower.startsWith(lastLineLower)) {
                 matchedName = nameWords.first()
                 break
             }
@@ -1204,3 +1536,4 @@ private fun ExamplesPopup(
         }
     }
 }
+

@@ -64,8 +64,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vincentlarkin.mentzertracker.ui.settings.buildExportJson
-import com.vincentlarkin.mentzertracker.ui.settings.resolveAppVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

@@ -1,4 +1,6 @@
-package com.vincentlarkin.mentzertracker
+package com.vincentlarkin.mentzertracker.legacy
+
+import com.vincentlarkin.mentzertracker.WorkoutTemplate
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

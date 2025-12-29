@@ -16,8 +16,8 @@ android {
         applicationId = "com.vincentlarkin.mentzertracker"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "2.0.1-beta"
+        versionCode = 8
+        versionName = "2.0.0-Release"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

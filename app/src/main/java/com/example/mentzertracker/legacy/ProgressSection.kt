@@ -1,4 +1,8 @@
-package com.vincentlarkin.mentzertracker
+package com.vincentlarkin.mentzertracker.legacy
+
+import com.vincentlarkin.mentzertracker.Exercise
+import com.vincentlarkin.mentzertracker.SessionPoint
+import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background

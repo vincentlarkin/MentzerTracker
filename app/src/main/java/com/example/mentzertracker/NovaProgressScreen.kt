@@ -29,8 +29,20 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,9 +77,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+
+// Represents an editable session entry
+private data class EditableSession(
+    val logId: Long,
+    val exerciseId: String,
+    val setIndex: Int,
+    val originalDate: String,
+    val originalWeight: Float,
+    val originalReps: Int
+)
 
 @Composable
 fun NovaProgressScreen(
@@ -78,6 +101,14 @@ fun NovaProgressScreen(
 ) {
     var selectedExercise by remember { mutableStateOf<Exercise?>(null) }
     var showExercisePicker by remember { mutableStateOf(false) }
+    var showAllExercises by remember { mutableStateOf(false) }
+    
+    // Edit state
+    var editingSession by remember { mutableStateOf<EditableSession?>(null) }
+    var editDate by remember { mutableStateOf("") }
+    var editWeight by remember { mutableStateOf("") }
+    var editReps by remember { mutableStateOf("") }
+    var showDatePicker by remember { mutableStateOf(false) }
     
     // Get theme colors
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -89,23 +120,40 @@ fun NovaProgressScreen(
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     
-    // Build history map
-    val histories: Map<Exercise, List<SessionPoint>> = remember(logs, exercises) {
+    // Build history map with log reference for editing
+    data class SessionWithLog(
+        val point: SessionPoint,
+        val logId: Long,
+        val setIndex: Int,
+        val exerciseId: String
+    )
+    
+    val historiesWithLogs: Map<Exercise, List<SessionWithLog>> = remember(logs, exercises) {
         exercises.associateWith { ex ->
             logs.flatMapIndexed { index, log ->
-                log.sets
-                    .filter { it.exerciseId == ex.id }
-                    .map { setEntry ->
-                        SessionPoint(
-                            sessionIndex = index + 1,
-                            date = log.date,
-                            weight = setEntry.weight,
-                            reps = setEntry.reps,
-                            notes = log.notes
+                log.sets.mapIndexedNotNull { setIdx, setEntry ->
+                    if (setEntry.exerciseId == ex.id) {
+                        SessionWithLog(
+                            point = SessionPoint(
+                                sessionIndex = index + 1,
+                                date = log.date,
+                                weight = setEntry.weight,
+                                reps = setEntry.reps,
+                                notes = log.notes
+                            ),
+                            logId = log.id,
+                            setIndex = setIdx,
+                            exerciseId = ex.id
                         )
-                    }
+                    } else null
+                }
             }
         }.filterValues { it.isNotEmpty() }
+    }
+    
+    // Also keep simple history map for compatibility
+    val histories: Map<Exercise, List<SessionPoint>> = remember(historiesWithLogs) {
+        historiesWithLogs.mapValues { (_, sessions) -> sessions.map { it.point } }
     }
     
     // Auto-select first exercise with history
@@ -214,11 +262,12 @@ fun NovaProgressScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            selectedExercise?.name ?: "Select exercise",
+                            if (showAllExercises) "📊 All Exercises" 
+                            else selectedExercise?.name ?: "Select exercise",
                             style = TextStyle(
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = onSurfaceColor
+                                color = if (showAllExercises) primaryColor else onSurfaceColor
                             )
                         )
                         Icon(
@@ -231,64 +280,122 @@ fun NovaProgressScreen(
                 
                 Spacer(Modifier.height(20.dp))
                 
-                // Graph card
-                selectedExercise?.let { exercise ->
-                    val history = histories[exercise] ?: emptyList()
-                    
+                // Graph card - shows either single exercise or all exercises
+                if (showAllExercises) {
+                    // Multi-exercise chart
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(240.dp)
+                            .height(280.dp)
                             .clip(RoundedCornerShape(20.dp))
                             .background(surfaceColor)
                             .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
                             .padding(16.dp)
                     ) {
-                        if (history.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "No data yet",
-                                    style = TextStyle(
-                                        fontSize = 15.sp,
-                                        color = onSurfaceVariant
-                                    )
-                                )
-                            }
-                        } else {
-                            NovaLineChart(
-                                history = history,
+                        Column {
+                            Text(
+                                "Overall Progress",
+                                style = TextStyle(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = onSurfaceVariant
+                                ),
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            
+                            MultiExerciseLineChart(
+                                exerciseData = histories,
                                 modifier = Modifier.fillMaxSize(),
                                 primaryColor = primaryColor,
                                 backgroundColor = backgroundColor,
-                                surfaceColor = surfaceColor,
                                 textColor = onSurfaceVariant,
                                 gridColor = outlineColor
                             )
                         }
                     }
                     
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(16.dp))
                     
-                    // Recent sessions
-                    if (history.isNotEmpty()) {
-                        Text(
-                            "Recent",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onBackgroundColor
-                            ),
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
+                    // Legend for all exercises
+                    ExerciseLegend(
+                        exercises = histories.keys.toList(),
+                        surfaceColor = surfaceVariant,
+                        textColor = onSurfaceColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    selectedExercise?.let { exercise ->
+                        val history = histories[exercise] ?: emptyList()
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(240.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(surfaceColor)
+                                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                .padding(16.dp)
+                        ) {
+                            if (history.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "No data yet",
+                                        style = TextStyle(
+                                            fontSize = 15.sp,
+                                            color = onSurfaceVariant
+                                        )
+                                    )
+                                }
+                            } else {
+                                NovaLineChart(
+                                    history = history,
+                                    modifier = Modifier.fillMaxSize(),
+                                    primaryColor = primaryColor,
+                                    backgroundColor = backgroundColor,
+                                    surfaceColor = surfaceColor,
+                                    textColor = onSurfaceVariant,
+                                    gridColor = outlineColor
+                                )
+                            }
+                        }
+                        
+                        Spacer(Modifier.height(20.dp))
+                        
+                        // Recent sessions
+                    val sessionsWithLogs = historiesWithLogs[exercise] ?: emptyList()
+                    if (sessionsWithLogs.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Recent",
+                                style = TextStyle(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = onBackgroundColor
+                                )
+                            )
+                            Text(
+                                "Tap to edit",
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    color = onSurfaceVariant
+                                )
+                            )
+                        }
                         
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            itemsIndexed(history.reversed().take(10)) { index, point ->
+                            itemsIndexed(sessionsWithLogs.reversed().take(10)) { index, sessionWithLog ->
                                 var visible by remember { mutableStateOf(false) }
                                 LaunchedEffect(Unit) {
                                     delay(index * 50L)
@@ -303,17 +410,31 @@ fun NovaProgressScreen(
                                     ) + fadeIn()
                                 ) {
                                     SessionRow(
-                                        point = point,
+                                        point = sessionWithLog.point,
                                         surfaceColor = surfaceVariant,
                                         primaryColor = primaryColor,
                                         textColor = onSurfaceColor,
-                                        secondaryColor = onSurfaceVariant
+                                        secondaryColor = onSurfaceVariant,
+                                        onClick = {
+                                            editingSession = EditableSession(
+                                                logId = sessionWithLog.logId,
+                                                exerciseId = sessionWithLog.exerciseId,
+                                                setIndex = sessionWithLog.setIndex,
+                                                originalDate = sessionWithLog.point.date,
+                                                originalWeight = sessionWithLog.point.weight,
+                                                originalReps = sessionWithLog.point.reps
+                                            )
+                                            editDate = sessionWithLog.point.date
+                                            editWeight = sessionWithLog.point.weight.toString()
+                                            editReps = sessionWithLog.point.reps.toString()
+                                        }
                                     )
                                 }
                             }
                         }
                     }
-                }
+                    } // End of selectedExercise?.let
+                } // End of else (single exercise view)
             }
         }
         
@@ -324,6 +445,7 @@ fun NovaProgressScreen(
                 selected = selectedExercise,
                 onSelect = {
                     selectedExercise = it
+                    showAllExercises = false
                     showExercisePicker = false
                 },
                 onDismiss = { showExercisePicker = false },
@@ -331,10 +453,201 @@ fun NovaProgressScreen(
                 primaryColor = primaryColor,
                 textColor = onSurfaceColor,
                 outlineColor = outlineColor,
-                surfaceVariant = surfaceVariant
+                surfaceVariant = surfaceVariant,
+                showAllOption = true,
+                isAllSelected = showAllExercises,
+                onAllSelected = {
+                    showAllExercises = true
+                    showExercisePicker = false
+                }
+            )
+        }
+        
+        // Edit session dialog
+        editingSession?.let { session ->
+            EditSessionDialog(
+                date = editDate,
+                weight = editWeight,
+                reps = editReps,
+                onDateChange = { editDate = it },
+                onWeightChange = { editWeight = it },
+                onRepsChange = { editReps = it },
+                onShowDatePicker = { showDatePicker = true },
+                onDismiss = { editingSession = null },
+                onSave = {
+                    val newWeight = editWeight.toFloatOrNull()
+                    val newReps = editReps.toIntOrNull()
+                    
+                    if (newWeight != null && newReps != null) {
+                        val updatedLogs = logs.map { log ->
+                            if (log.id == session.logId) {
+                                val updatedSets = log.sets.mapIndexed { idx, set ->
+                                    if (idx == session.setIndex && set.exerciseId == session.exerciseId) {
+                                        set.copy(weight = newWeight, reps = newReps)
+                                    } else set
+                                }
+                                log.copy(date = editDate, sets = updatedSets)
+                            } else log
+                        }
+                        onUpdateLogs(updatedLogs)
+                    }
+                    editingSession = null
+                },
+                surfaceColor = surfaceColor,
+                primaryColor = primaryColor,
+                textColor = onSurfaceColor,
+                secondaryColor = onSurfaceVariant,
+                outlineColor = outlineColor
+            )
+        }
+        
+        // Date picker dialog
+        if (showDatePicker) {
+            DatePickerDialogWrapper(
+                initialDate = editDate,
+                onDateSelected = { editDate = it },
+                onDismiss = { showDatePicker = false }
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerDialogWrapper(
+    initialDate: String,
+    onDateSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val initialMillis = try {
+        formatter.parse(initialDate)?.time
+    } catch (e: Exception) {
+        null
+    }
+    
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val millis = datePickerState.selectedDateMillis
+                    if (millis != null) {
+                        onDateSelected(formatter.format(Date(millis)))
+                    }
+                    onDismiss()
+                }
+            ) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    ) {
+        DatePicker(state = datePickerState)
+    }
+}
+
+@Composable
+private fun EditSessionDialog(
+    date: String,
+    weight: String,
+    reps: String,
+    onDateChange: (String) -> Unit,
+    onWeightChange: (String) -> Unit,
+    onRepsChange: (String) -> Unit,
+    onShowDatePicker: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    surfaceColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryColor: Color,
+    outlineColor: Color
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = surfaceColor,
+        title = {
+            Text(
+                "Edit Entry",
+                style = TextStyle(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Date field (read-only, tap to open picker)
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Date") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onShowDatePicker() },
+                    trailingIcon = {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Change date",
+                            modifier = Modifier.clickable { onShowDatePicker() }
+                        )
+                    }
+                )
+                
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = weight,
+                        onValueChange = { value ->
+                            val filtered = value.filter { it.isDigit() || it == '.' }
+                            onWeightChange(filtered)
+                        },
+                        label = { Text("Weight (lbs)") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    
+                    OutlinedTextField(
+                        value = reps,
+                        onValueChange = { value ->
+                            val filtered = value.filter { it.isDigit() }
+                            onRepsChange(filtered)
+                        },
+                        label = { Text("Reps") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onSave,
+                enabled = weight.toFloatOrNull() != null && reps.toIntOrNull() != null
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = secondaryColor)
+            }
+        }
+    )
 }
 
 @Composable
@@ -343,7 +656,8 @@ private fun SessionRow(
     surfaceColor: Color,
     primaryColor: Color,
     textColor: Color,
-    secondaryColor: Color
+    secondaryColor: Color,
+    onClick: (() -> Unit)? = null
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
     val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
@@ -360,6 +674,11 @@ private fun SessionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(surfaceColor)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else Modifier
+            )
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -397,6 +716,16 @@ private fun SessionRow(
                     fontSize = 12.sp,
                     color = secondaryColor
                 )
+            )
+        }
+        
+        if (onClick != null) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit",
+                tint = secondaryColor,
+                modifier = Modifier.size(16.dp)
             )
         }
     }
@@ -636,7 +965,10 @@ private fun ExercisePickerDialog(
     primaryColor: Color,
     textColor: Color,
     outlineColor: Color,
-    surfaceVariant: Color
+    surfaceVariant: Color,
+    showAllOption: Boolean = false,
+    isAllSelected: Boolean = false,
+    onAllSelected: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -677,8 +1009,34 @@ private fun ExercisePickerDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.height(300.dp)
             ) {
+                // "All Exercises" option
+                if (showAllOption && onAllSelected != null) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isAllSelected) primaryColor.copy(alpha = 0.15f)
+                                    else surfaceVariant
+                                )
+                                .clickable { onAllSelected() }
+                                .padding(14.dp)
+                        ) {
+                            Text(
+                                "📊 All Exercises",
+                                style = TextStyle(
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isAllSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isAllSelected) primaryColor else textColor
+                                )
+                            )
+                        }
+                    }
+                }
+                
                 items(exercises) { exercise ->
-                    val isSelected = exercise == selected
+                    val isSelected = exercise == selected && !isAllSelected
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -716,5 +1074,201 @@ private fun parseIsoDateMillis(dateStr: String): Long? {
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
     } catch (_: Exception) {
         null
+    }
+}
+
+// Colors for different exercises in multi-line chart
+private val exerciseColors = listOf(
+    Color(0xFF6366F1), // Indigo
+    Color(0xFFEC4899), // Pink
+    Color(0xFF10B981), // Emerald
+    Color(0xFFF59E0B), // Amber
+    Color(0xFF8B5CF6), // Violet
+    Color(0xFF06B6D4), // Cyan
+    Color(0xFFF97316), // Orange
+    Color(0xFF84CC16), // Lime
+)
+
+@Composable
+private fun ExerciseLegend(
+    exercises: List<Exercise>,
+    surfaceColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        itemsIndexed(exercises) { index, exercise ->
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(surfaceColor)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(exerciseColors[index % exerciseColors.size])
+                )
+                Text(
+                    exercise.name.split(" ").first(),
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        color = textColor
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiExerciseLineChart(
+    exerciseData: Map<Exercise, List<SessionPoint>>,
+    modifier: Modifier = Modifier,
+    primaryColor: Color,
+    backgroundColor: Color,
+    textColor: Color,
+    gridColor: Color
+) {
+    if (exerciseData.isEmpty() || exerciseData.values.all { it.isEmpty() }) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "No data yet",
+                style = TextStyle(
+                    fontSize = 15.sp,
+                    color = textColor
+                )
+            )
+        }
+        return
+    }
+
+    // Get all weights across all exercises to determine Y scale
+    val allWeights = exerciseData.values.flatten().map { it.weight }
+    val rawMax = allWeights.maxOrNull() ?: 0f
+    val yMax = paddedMaxWeight(rawMax)
+    val ticks = (0..4).map { i -> yMax * i / 4f }
+
+    val density = LocalDensity.current
+
+    Row(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(end = 4.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.End
+        ) {
+            for (value in ticks.reversed()) {
+                Text(
+                    text = value.toInt().toString(),
+                    style = TextStyle(
+                        fontSize = 10.sp,
+                        color = textColor
+                    )
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        ) {
+            Canvas(
+                modifier = Modifier.matchParentSize()
+            ) {
+                val width = size.width
+                val height = size.height
+
+                val leftPadding = 8.dp.toPx()
+                val rightPadding = 8.dp.toPx()
+                val topPadding = 16.dp.toPx()
+                val bottomPadding = 8.dp.toPx()
+
+                val usableWidth = width - leftPadding - rightPadding
+                val usableHeight = height - topPadding - bottomPadding
+
+                fun yForWeight(w: Float): Float {
+                    val normalized = (w / yMax).coerceIn(0f, 1f)
+                    return topPadding + (1f - normalized) * usableHeight
+                }
+
+                // Draw grid lines
+                ticks.forEach { tickValue ->
+                    val y = yForWeight(tickValue)
+                    drawLine(
+                        color = gridColor.copy(alpha = 0.2f),
+                        start = Offset(leftPadding, y),
+                        end = Offset(width - rightPadding, y),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                // Draw each exercise line
+                exerciseData.entries.forEachIndexed { index, (_, history) ->
+                    if (history.isEmpty()) return@forEachIndexed
+
+                    val orderedHistory = history.sortedWith(
+                        compareBy(
+                            { parseIsoDateMillis(it.date) ?: Long.MAX_VALUE },
+                            { it.sessionIndex }
+                        )
+                    )
+
+                    val color = exerciseColors[index % exerciseColors.size]
+                    val stepX = if (orderedHistory.size == 1) 0f else usableWidth / (orderedHistory.size - 1)
+
+                    val points = orderedHistory.mapIndexed { pointIndex, point ->
+                        val x = leftPadding + stepX * pointIndex
+                        val y = yForWeight(point.weight)
+                        Offset(x, y)
+                    }
+
+                    // Draw line
+                    if (points.size >= 2) {
+                        val linePath = Path().apply {
+                            moveTo(points.first().x, points.first().y)
+                            for (i in 1 until points.size) {
+                                lineTo(points[i].x, points[i].y)
+                            }
+                        }
+
+                        drawPath(
+                            path = linePath,
+                            color = color,
+                            style = Stroke(
+                                width = 2.5.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                    }
+
+                    // Draw points
+                    points.forEach { pt ->
+                        drawCircle(
+                            color = color,
+                            radius = 4.dp.toPx(),
+                            center = pt
+                        )
+                        drawCircle(
+                            color = backgroundColor,
+                            radius = 2.dp.toPx(),
+                            center = pt
+                        )
+                    }
+                }
+            }
+        }
     }
 }

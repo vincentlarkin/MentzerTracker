@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -107,6 +108,7 @@ fun NovaBuilderScreen(
     var customNameInput by remember { mutableStateOf("") }
     var addingToWorkout by remember { mutableStateOf<String?>(null) } // "A" or "B" or null
     var selectedTab by remember { mutableStateOf(0) } // 0 = Workout A, 1 = Workout B
+    var searchQuery by remember { mutableStateOf("") }
 
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -148,6 +150,20 @@ fun NovaBuilderScreen(
     }
 
     val combinedExercises = baseExercises + customExercises.toList()
+    
+    // Filter exercises based on search query
+    val filteredExercises = remember(combinedExercises, searchQuery) {
+        if (searchQuery.isBlank()) {
+            combinedExercises
+        } else {
+            val query = searchQuery.lowercase().trim()
+            combinedExercises.filter { exercise ->
+                exercise.name.lowercase().contains(query) ||
+                exercise.id.lowercase().contains(query)
+            }
+        }
+    }
+    
     val selectedACount = aSelections.count { it.value }
     val selectedBCount = bSelections.count { it.value }
     val canSave = selectedACount >= 2 && selectedBCount >= 2
@@ -247,12 +263,79 @@ fun NovaBuilderScreen(
                 )
             }
 
-            // Info text
+            // Search bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(surfaceColor)
+                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = onSurfaceVariantColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        textStyle = TextStyle(
+                            fontSize = 15.sp,
+                            color = onBackgroundColor
+                        ),
+                        singleLine = true,
+                        cursorBrush = SolidColor(primaryColor),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        "Search exercises...",
+                                        style = TextStyle(
+                                            fontSize = 15.sp,
+                                            color = onSurfaceVariantColor
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = onSurfaceVariantColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // Info text with result count
             Text(
-                text = "Select at least 2 exercises per workout. Tap to toggle.",
+                text = if (searchQuery.isNotEmpty()) {
+                    "${filteredExercises.size} exercises found • Select at least 2 per workout"
+                } else {
+                    "${combinedExercises.size} exercises • Select at least 2 per workout"
+                },
                 fontSize = 13.sp,
                 color = onSurfaceVariantColor,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
 
             // Exercise list
@@ -300,8 +383,8 @@ fun NovaBuilderScreen(
                     }
                 }
 
-                // Exercise items
-                items(combinedExercises, key = { it.id }) { exercise ->
+                // Exercise items (filtered by search)
+                items(filteredExercises, key = { it.id }) { exercise ->
                     val isSelected = if (selectedTab == 0) {
                         aSelections[exercise.id] == true
                     } else {
@@ -669,5 +752,6 @@ private fun generateCustomExerciseId(existingIds: Set<String>): String {
     } while (candidate in existingIds)
     return candidate
 }
+
 
 
