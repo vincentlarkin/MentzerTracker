@@ -1,44 +1,33 @@
 # MentzerTracker
 
-MentzerTracker is a simple Android app for planning and logging Mike Mentzer style A/B workouts. Built this for personal workout usage.
+A flexible workout logging app for Android, with optional A/B workout tracking inspired by Mike Mentzer's High Intensity Training.
 
 ## Features
-- Quick logging for weight and reps
-- Optional per-session notes so you remember how a workout felt
-- Light and dark theme
-- Data reset option for a fresh start
-- Customizable workout notifications (Daily, Weekly, or custom intervals) to keep you on track.
-- Smart workout logic notifications (tells you if it's time for Workout A or B).
+- **Natural language logging** - Type "bench 225 x 8" and it just works
+- **70+ built-in exercises** with smart aliases (bench, flat, bb bench all work)
+- **Progress tracking** with line charts and history
+- **Customizable workout intervals** - Daily, weekly, or custom
+- **Light/dark themes**
+- **Backup & restore**
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/dark_main.png" alt="Dark mode main tracker" width="280">
-  <img src="docs/images/dark_builder.png" alt="Dark mode workout builder" width="280">
-</p>
-<p align="center">
-  <img src="docs/images/light_main.png" alt="Light mode main tracker" width="280">
-  <img src="docs/images/light_graph.png" alt="Light mode progress graph" width="280">
+  <img src="docs/images/home.png" alt="Home screen" width="260">
+  <img src="docs/images/progress.png" alt="Progress view" width="260">
+  <img src="docs/images/builder.png" alt="Workout builder" width="260">
 </p>
 
-## Code Layout
-- `MainActivity.kt` – wires together theme, splash/builder/tracker flow, and ties persistence to the UI.
-- `SplashScreen.kt` – welcome screen with backup import and settings shortcut.
-- `TemplateSelector.kt` – simple A/B workout picker and “Edit workouts” entry point.
-- `LogWorkoutSection.kt` – input surface to record sets for the selected template.
-- `ProgressSection.kt` – compact per‑exercise chart/list plus dropdown/tooltip helpers.
-- `FullProgressScreen.kt` – full-screen progress editor with date picker, delete/save controls.
-- `ui/settings/SettingsScreen.kt` – appearance, backup/export, and debug/notification tools.
-- `NotificationSettingsDialog.kt` & `NotificationHelper.kt` – reminder preferences, scheduling, and test notifications.
-- `WorkoutReminderWorker.kt` – WorkManager worker that fires the scheduled reminder notification.
+## Quick Start
 
-## Building
+1. Clone and open in Android Studio
+2. Sync Gradle & run on Android 11+
 
-1. **Clone the repo**
-   ```bash
-   git clone https://github.com/<your-org>/MentzerTracker.git
-   cd MentzerTracker
-   ```
-2. **Open in Android Studio** (Giraffe or newer recommended).
-3. **Sync & Build** – Android Studio will download dependencies via Gradle.
-4. **Run** on an emulator or physical device running Android 11.0 or higher.
+## Code Structure
+- `novanotes/` - Main UI screens (Home, Builder, Progress)
+- `WorkoutParser.kt` - Natural language exercise parsing
+- `WorkoutData.kt` - Exercise definitions and data models
+- `NotificationHelper.kt` - Reminder scheduling
+
+## License
+Personal project - feel free to fork and modify.

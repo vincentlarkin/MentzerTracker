@@ -18,18 +18,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -63,7 +68,9 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
-import com.vincentlarkin.mentzertracker.ui.settings.SettingsScreen
+import com.vincentlarkin.mentzertracker.novanotes.NovaBuilderScreen
+import com.vincentlarkin.mentzertracker.novanotes.NovaNotesScreen
+import com.vincentlarkin.mentzertracker.novanotes.NovaSplashScreen
 import com.vincentlarkin.mentzertracker.ui.theme.MentzerTrackerTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,7 +99,7 @@ enum class ThemeMode { DARK, LIGHT }
 private val ScreenPadding = 16.dp
 private const val UI_SCALE_FACTOR = 0.94f
 
-private const val CUSTOM_EXERCISE_NAME_LIMIT = 40
+internal const val CUSTOM_EXERCISE_NAME_LIMIT = 40
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_ALLOW_PARTIAL_SESSIONS = "allow_partial_sessions"
 
@@ -111,6 +118,8 @@ private const val PREFS_NAME = "mentzer_prefs"
 private const val KEY_HAS_SEEN_SPLASH = "has_seen_splash"
 private const val KEY_WORKOUT_LOGS = "workout_logs"
 private const val KEY_WORKOUT_CONFIG = "workout_config"
+private const val KEY_WORKOUT_INTERVAL = "workout_interval_days"
+private const val DEFAULT_WORKOUT_INTERVAL = 7 // Weekly by default
 
 internal data class BackupSnapshot(
     val exportedAt: String = "",
@@ -155,7 +164,7 @@ internal fun loadWorkoutLogs(context: Context): List<WorkoutLogEntry> {
     }
 }
 
-private fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
+internal fun saveWorkoutLogs(context: Context, logs: List<WorkoutLogEntry>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = gson.toJson(logs)
     prefs.edit { putString(KEY_WORKOUT_LOGS, json) }
@@ -220,6 +229,16 @@ internal fun allowPartialSessions(context: Context): Boolean {
 private fun saveAllowPartialSessions(context: Context, allowed: Boolean) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     prefs.edit { putBoolean(KEY_ALLOW_PARTIAL_SESSIONS, allowed) }
+}
+
+fun loadWorkoutInterval(context: Context): Int {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getInt(KEY_WORKOUT_INTERVAL, DEFAULT_WORKOUT_INTERVAL)
+}
+
+fun saveWorkoutInterval(context: Context, days: Int) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit { putInt(KEY_WORKOUT_INTERVAL, days.coerceIn(1, 30)) }
 }
 
 private fun resetAppData(context: Context) {
@@ -315,14 +334,10 @@ fun MentzerApp() {
 
     val themeModeState = remember { mutableStateOf(loadThemeMode(context)) }
     val allowPartialSessionsState = remember { mutableStateOf(allowPartialSessions(context)) }
-    val showSettingsState = remember { mutableStateOf(false) }
-    val showNotificationsState = remember { mutableStateOf(false) }
     val resetKeyState = remember { mutableStateOf(0) }
 
     val themeMode = themeModeState.value
     val allowPartialSessions = allowPartialSessionsState.value
-    val showSettings = showSettingsState.value
-    val showNotifications = showNotificationsState.value
     val resetKey = resetKeyState.value
 
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
@@ -333,13 +348,13 @@ fun MentzerApp() {
             themeModeState.value = importedMode
             allowPartialSessionsState.value = allowPartialSessions(context)
             resetKeyState.value = resetKeyState.value + 1
-            showSettingsState.value = false
         }
 
-        if (showSettings) {
-            SettingsScreen(
+        // Nova shell handles settings internally via bottom nav
+        key(resetKey) {
+            AppRoot(
                 themeMode = themeMode,
-                isPartialSessionsAllowed = allowPartialSessions,
+                allowPartialSessions = allowPartialSessions,
                 onThemeModeChange = { newMode ->
                     themeModeState.value = newMode
                     saveThemeMode(context, newMode)
@@ -354,24 +369,8 @@ fun MentzerApp() {
                     themeModeState.value = loadThemeMode(context)
                     allowPartialSessionsState.value = allowPartialSessions(context)
                     resetKeyState.value = resetKeyState.value + 1
-                    showSettingsState.value = false
-                },
-                onBack = { showSettingsState.value = false }
+                }
             )
-        } else {
-            if (showNotifications) {
-                NotificationSettingsDialog(
-                    onDismiss = { showNotificationsState.value = false }
-                )
-            }
-            key(resetKey) {
-                AppRoot(
-                    onOpenSettings = { showSettingsState.value = true },
-                    onOpenNotifications = { showNotificationsState.value = true },
-                    onImportBackup = handleImport,
-                    allowPartialSessions = allowPartialSessions
-                )
-            }
         }
         }
     }
@@ -397,10 +396,12 @@ private fun ApplySystemBarStyle(themeMode: ThemeMode) {
 
 @Composable
 fun AppRoot(
-    onOpenSettings: () -> Unit,
-    onOpenNotifications: () -> Unit,
+    themeMode: ThemeMode,
+    allowPartialSessions: Boolean,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onAllowPartialSessionsChange: (Boolean) -> Unit,
     onImportBackup: (ThemeMode) -> Unit,
-    allowPartialSessions: Boolean
+    onResetData: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -423,446 +424,47 @@ fun AppRoot(
 
     when {
         showSplash -> {
-            SplashScreen(
+            NovaSplashScreen(
                 onStart = {
-                    setHasSeenSplash(context)
+                    // Don't persist yet - only mark as seen when they complete workout setup
                     showSplashState.value = false
                 },
-                onOpenSettings = onOpenSettings,
+                onOpenSettings = { /* handled internally now */ },
                 onImportBackup = onImportBackup
             )
         }
 
         editingConfig || !hasConfig -> {
-            WorkoutBuilderScreen(
+            NovaBuilderScreen(
                 initialConfig = workoutConfig,
                 onDone = { newConfig ->
                     workoutConfigState.value = newConfig
                     saveWorkoutConfig(context, newConfig)
                     hasConfigState.value = true
                     editingConfigState.value = false
+                    // Only now mark splash as seen - user completed full setup
+                    setHasSeenSplash(context)
                 },
                 showBack = editingConfig && hasConfig,
                 onBack = { editingConfigState.value = false },
-                onOpenSettings = onOpenSettings
+                onOpenSettings = null
             )
         }
 
         else -> {
-            WorkoutTrackerApp(
+            // Use the new Nova shell with bottom navigation
+            NovaAppShell(
                 config = workoutConfig,
-                onEditWorkouts = { editingConfigState.value = true },
-                onOpenSettings = onOpenSettings,
-                onOpenNotifications = onOpenNotifications,
-                allowPartialSessions = allowPartialSessions
+                themeMode = themeMode,
+                isPartialSessionsAllowed = allowPartialSessions,
+                onThemeModeChange = onThemeModeChange,
+                onAllowPartialSessionsChange = onAllowPartialSessionsChange,
+                onImportBackup = onImportBackup,
+                onResetData = onResetData,
+                onEditWorkouts = { editingConfigState.value = true }
             )
         }
     }
-}
-
-
-
-
-// ---------- SCREENS ----------
-
-/**
- * Simple one-screen builder:
- * - Scrollable list of checkboxes for Workout A
- * - Scrollable list of checkboxes for Workout B
- * - Must pick at least 2 for each
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun WorkoutBuilderScreen(
-    initialConfig: UserWorkoutConfig,
-    onDone: (UserWorkoutConfig) -> Unit,
-    showBack: Boolean = false,
-    onBack: (() -> Unit)? = null,
-    onOpenSettings: (() -> Unit)? = null
-) {
-    val scrollState = rememberScrollState()
-
-    val baseExercises = allExercises
-    val customExercises = remember(initialConfig) {
-        mutableStateListOf<Exercise>().apply {
-            addAll(initialConfig.customExercises)
-        }
-    }
-
-    val aSelections = remember(initialConfig) {
-        val initialA = initialConfig.workoutAExerciseIds.toSet()
-        mutableStateMapOf<String, Boolean>().apply {
-            (baseExercises + initialConfig.customExercises).forEach { ex ->
-                this[ex.id] = ex.id in initialA
-            }
-        }
-    }
-    val bSelections = remember(initialConfig) {
-        val initialB = initialConfig.workoutBExerciseIds.toSet()
-        mutableStateMapOf<String, Boolean>().apply {
-            (baseExercises + initialConfig.customExercises).forEach { ex ->
-                this[ex.id] = ex.id in initialB
-            }
-        }
-    }
-
-    var errorText by remember { mutableStateOf<String?>(null) }
-    var customNameA by remember { mutableStateOf("") }
-    var customNameB by remember { mutableStateOf("") }
-    var customErrorA by remember { mutableStateOf<String?>(null) }
-    var customErrorB by remember { mutableStateOf<String?>(null) }
-
-    fun ensureSelectionEntry(id: String) {
-        if (aSelections[id] == null) {
-            aSelections[id] = false
-        }
-        if (bSelections[id] == null) {
-            bSelections[id] = false
-        }
-    }
-
-    fun addCustomExercise(
-        rawName: String,
-        selectForA: Boolean,
-        selectForB: Boolean
-    ): String? {
-        val trimmed = rawName.trim()
-        if (trimmed.isEmpty()) {
-            return "Please enter a name."
-        }
-        if (trimmed.length > CUSTOM_EXERCISE_NAME_LIMIT) {
-            return "Limit is $CUSTOM_EXERCISE_NAME_LIMIT characters."
-        }
-        val lower = trimmed.lowercase(Locale.getDefault())
-        val existingNames = (baseExercises + customExercises).map {
-            it.name.lowercase(Locale.getDefault())
-        }
-        if (lower in existingNames) {
-            return "That exercise already exists."
-        }
-        val existingIds = (baseExercises + customExercises).map { it.id }.toSet()
-        val newExercise = Exercise(
-            id = generateCustomExerciseId(existingIds),
-            name = trimmed
-        )
-        customExercises.add(newExercise)
-        ensureSelectionEntry(newExercise.id)
-        aSelections[newExercise.id] = selectForA
-        bSelections[newExercise.id] = selectForB
-        return null
-    }
-
-    fun removeCustomExercise(exercise: Exercise) {
-        customExercises.removeAll { it.id == exercise.id }
-        aSelections.remove(exercise.id)
-        bSelections.remove(exercise.id)
-    }
-
-    fun toggleSelection(
-        map: MutableMap<String, Boolean>,
-        id: String,
-        newValue: Boolean
-    ) {
-        map[id] = newValue
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Build your A / B workouts") },
-                navigationIcon = {
-                    if (showBack && onBack != null) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.clip(RectangleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    if (onOpenSettings != null) {
-                        IconButton(
-                            onClick = onOpenSettings,
-                            modifier = Modifier.clip(RectangleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Settings,
-                                contentDescription = "Settings"
-                            )
-                        }
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(padding)          // respects notch / status bar
-                .padding(16.dp)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            val combinedExercises = baseExercises + customExercises.toList()
-
-            Text(
-                "Pick at least 2 exercises for each workout. You can reuse an exercise in both A and B if you want.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            // Workout A section
-            Text(
-                "Workout A",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = customNameA,
-                    onValueChange = { value ->
-                        val clipped = value.take(CUSTOM_EXERCISE_NAME_LIMIT)
-                        customNameA = clipped
-                        if (customErrorA != null) {
-                            customErrorA = null
-                        }
-                    },
-                    label = { Text("Custom exercise") },
-                    placeholder = { Text("e.g. Cable Fly") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    isError = customErrorA != null,
-                    supportingText = {
-                        Text("${customNameA.length}/$CUSTOM_EXERCISE_NAME_LIMIT")
-                    }
-                )
-                Button(
-                    onClick = {
-                        val error = addCustomExercise(
-                            rawName = customNameA,
-                            selectForA = true,
-                            selectForB = false
-                        )
-                        if (error != null) {
-                            customErrorA = error
-                        } else {
-                            customNameA = ""
-                            customErrorA = null
-                        }
-                    },
-                    enabled = customNameA.isNotBlank(),
-                    shape = RectangleShape
-                ) {
-                    Text("Add")
-                }
-            }
-            if (customErrorA != null) {
-                Text(
-                    text = customErrorA!!,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            combinedExercises.forEach { ex ->
-                val checked = aSelections[ex.id] == true
-                val isCustom = customExercises.any { it.id == ex.id }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                ) {
-                    Checkbox(
-                        checked = checked,
-                        onCheckedChange = { toggleSelection(aSelections, ex.id, it) },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = MaterialTheme.colorScheme.primary,
-                            uncheckedColor = MaterialTheme.colorScheme.outline,
-                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                    Text(
-                        ex.name,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { toggleSelection(aSelections, ex.id, !checked) }
-                            .padding(end = 8.dp)
-                    )
-                    if (isCustom) {
-                        TextButton(
-                            onClick = { removeCustomExercise(ex) },
-                            shape = RectangleShape
-                        ) {
-                            Text("Delete")
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Workout B section
-            Text(
-                "Workout B",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = customNameB,
-                    onValueChange = { value ->
-                        val clipped = value.take(CUSTOM_EXERCISE_NAME_LIMIT)
-                        customNameB = clipped
-                        if (customErrorB != null) {
-                            customErrorB = null
-                        }
-                    },
-                    label = { Text("Custom exercise") },
-                    placeholder = { Text("e.g. Reverse Crunch") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    isError = customErrorB != null,
-                    supportingText = {
-                        Text("${customNameB.length}/$CUSTOM_EXERCISE_NAME_LIMIT")
-                    }
-                )
-                Button(
-                    onClick = {
-                        val error = addCustomExercise(
-                            rawName = customNameB,
-                            selectForA = false,
-                            selectForB = true
-                        )
-                        if (error != null) {
-                            customErrorB = error
-                        } else {
-                            customNameB = ""
-                            customErrorB = null
-                        }
-                    },
-                    enabled = customNameB.isNotBlank(),
-                    shape = RectangleShape
-                ) {
-                    Text("Add")
-                }
-            }
-            if (customErrorB != null) {
-                Text(
-                    text = customErrorB!!,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            combinedExercises.forEach { ex ->
-                val checked = bSelections[ex.id] == true
-                val isCustom = customExercises.any { it.id == ex.id }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                ) {
-                    Checkbox(
-                        checked = checked,
-                        onCheckedChange = { toggleSelection(bSelections, ex.id, it) },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = MaterialTheme.colorScheme.primary,
-                            uncheckedColor = MaterialTheme.colorScheme.outline,
-                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                    Text(
-                        ex.name,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { toggleSelection(bSelections, ex.id, !checked) }
-                            .padding(end = 8.dp)
-                    )
-                    if (isCustom) {
-                        TextButton(
-                            onClick = { removeCustomExercise(ex) },
-                            shape = RectangleShape
-                        ) {
-                            Text("Delete")
-                        }
-                    }
-                }
-            }
-
-            if (errorText != null) {
-                Text(
-                    text = errorText!!,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-
-            Button(
-                onClick = {
-                    val combined = (baseExercises + customExercises.toList())
-                        .distinctBy { it.id }
-                    val validIds = combined.map { it.id }.toSet()
-                    val aIds = aSelections
-                        .filter { (id, checked) -> checked && id in validIds }
-                        .keys
-                        .toList()
-                    val bIds = bSelections
-                        .filter { (id, checked) -> checked && id in validIds }
-                        .keys
-                        .toList()
-
-                    when {
-                        aIds.size < 2 ->
-                            errorText = "Please pick at least 2 exercises for Workout A."
-                        bIds.size < 2 ->
-                            errorText = "Please pick at least 2 exercises for Workout B."
-                        else -> {
-                            errorText = null
-                            onDone(
-                                UserWorkoutConfig(
-                                    workoutAExerciseIds = aIds,
-                                    workoutBExerciseIds = bIds,
-                                    customExercises = customExercises.toList()
-                                )
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                shape = RectangleShape
-            ) {
-                Text("Save workouts")
-            }
-        }
-    }
-}
-
-
-
-
-private fun generateCustomExerciseId(existingIds: Set<String>): String {
-    var candidate: String
-    do {
-        candidate = "custom_${UUID.randomUUID()}"
-    } while (candidate in existingIds)
-    return candidate
 }
 
 private fun Density.scaled(scaleFactor: Float): Density {
@@ -873,175 +475,3 @@ private fun Density.scaled(scaleFactor: Float): Density {
         override val fontScale: Float = baseFontScale * scaleFactor
     }
 }
-
-
-// ---------- MAIN TRACKER APP (INCLUDING FULL PROGRESS NAV) ----------
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun WorkoutTrackerApp(
-    config: UserWorkoutConfig,
-    onEditWorkouts: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenNotifications: () -> Unit,
-    allowPartialSessions: Boolean
-) {
-    val context = LocalContext.current
-    var selectedTemplateId by remember { mutableStateOf("A") }
-
-    val combinedExercises = remember(config) {
-        (allExercises + config.customExercises).distinctBy { it.id }
-    }
-    val exercisesById = remember(config) {
-        combinedExercises.associateBy { it.id }
-    }
-
-    // Build templates from current config
-    val templates = remember(config) {
-        listOf(
-            WorkoutTemplate(
-                id = "A",
-                name = "Workout A",
-                exerciseIds = config.workoutAExerciseIds
-            ),
-            WorkoutTemplate(
-                id = "B",
-                name = "Workout B",
-                exerciseIds = config.workoutBExerciseIds
-            )
-        )
-    }
-
-    // Logs
-    val logEntries = remember {
-        mutableStateListOf<WorkoutLogEntry>().apply {
-            addAll(loadWorkoutLogs(context))
-        }
-    }
-
-    val showFullProgressState = remember { mutableStateOf(false) }
-    val fullScreenExerciseIdState = remember { mutableStateOf<String?>(null) }
-    val showFullProgress = showFullProgressState.value
-
-    if (showFullProgress) {
-        BackHandler {
-            showFullProgressState.value = false
-            fullScreenExerciseIdState.value = null
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            if (!showFullProgress) {
-                TopAppBar(
-                    title = { Text("Mentzer A/B Tracker") },
-                    actions = {
-                        IconButton(
-                            onClick = onOpenNotifications,
-                            modifier = Modifier.clip(RectangleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Notifications,
-                                contentDescription = "Notifications"
-                            )
-                        }
-                        IconButton(
-                            onClick = onOpenSettings,
-                            modifier = Modifier.clip(RectangleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Settings,
-                                contentDescription = "Settings"
-                            )
-                        }
-                    }
-                )
-            } else {
-                TopAppBar(
-                    title = { Text("Progress") },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                showFullProgressState.value = false
-                                fullScreenExerciseIdState.value = null
-                            },
-                            modifier = Modifier.clip(RectangleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
-                    }
-                )
-            }
-        }
-    )
- { padding ->
-     if (!showFullProgress) {
-         val scrollState = rememberScrollState()
-
-         Column(
-             modifier = Modifier
-                 .padding(padding)
-                 .fillMaxSize()
-                 .verticalScroll(scrollState)
-                 .padding(ScreenPadding),
-             verticalArrangement = Arrangement.spacedBy(16.dp)
-         ) {
-             TemplateSelector(
-                 selectedTemplateId = selectedTemplateId,
-                 templates = templates,
-                 onTemplateSelected = { selectedTemplateId = it },
-                 onEditWorkouts = onEditWorkouts
-             )
-
-             val currentTemplate = templates.firstOrNull { it.id == selectedTemplateId }
-                ?: templates.firstOrNull()
-                ?: return@Column
-
-             LogWorkoutSection(
-                 template = currentTemplate,
-                 exercisesById = exercisesById,
-                allowPartialSessions = allowPartialSessions,
-                onSave = { sets, notes ->
-                     val entry = WorkoutLogEntry(
-                         id = System.currentTimeMillis(),
-                         templateId = currentTemplate.id,
-                         date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                             .format(Date()),
-                        sets = sets,
-                        notes = notes?.takeIf { it.isNotBlank() }
-                     )
-                     logEntries.add(entry)
-                     saveWorkoutLogs(context, logEntries)
-                 }
-             )
-
-             ProgressSection(
-                 logs = logEntries,
-                 exercises = combinedExercises,
-                onOpenFullScreen = { exercise ->
-                    fullScreenExerciseIdState.value = exercise.id
-                    showFullProgressState.value = true
-                }
-             )
-         }
-        } else {
-            FullProgressScreen(
-                logs = logEntries,
-                exercises = combinedExercises,
-                modifier = Modifier
-                    .padding(padding)
-                .fillMaxSize(),
-            initialExerciseId = fullScreenExerciseIdState.value,
-                onUpdateLogs = { newLogs ->
-                    logEntries.clear()
-                    logEntries.addAll(newLogs)
-                    saveWorkoutLogs(context, logEntries)
-                }
-            )
-        }
-    }
-}
-

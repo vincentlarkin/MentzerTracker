@@ -1,5 +1,4 @@
-package com.vincentlarkin.mentzertracker.ui.settings
-
+package com.vincentlarkin.mentzertracker.legacy
 
 import android.content.Context
 import android.content.pm.PackageManager
