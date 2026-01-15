@@ -129,7 +129,9 @@ object WorkoutParser {
         "close grip pulldown" to "close_grip_pulldown",
         "close pulldown" to "close_grip_pulldown",
         "close grip" to "close_grip_pulldown",
+        "close-grip" to "close_grip_pulldown",
         "underhand pulldown" to "close_grip_pulldown",
+
         
         "pull up" to "pull_ups",
         "pull ups" to "pull_ups",

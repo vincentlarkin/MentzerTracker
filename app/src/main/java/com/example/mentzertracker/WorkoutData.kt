@@ -8,10 +8,11 @@ data class Exercise(
 )
 
 data class WorkoutTemplate(
-    val id: String,        // e.g. "A" or "B"
-    val name: String,      // e.g. "Workout A"
+    val id: String,
+    val name: String,
     val exerciseIds: List<String>
 )
+
 
 data class ExerciseSetEntry(
     val exerciseId: String,
@@ -21,13 +22,14 @@ data class ExerciseSetEntry(
 
 data class WorkoutLogEntry(
     val id: Long,              // timestamp
-    val templateId: String,    // "A" or "B"
+    val templateId: String,    // workout label (e.g., "TODAY", "A", "B")
     val date: String,
     val sets: List<ExerciseSetEntry>,
     val notes: String? = null
 )
 
-// User-configurable A/B setup, stored in SharedPreferences
+// User workout setup, stored in SharedPreferences
+
 data class UserWorkoutConfig(
     val workoutAExerciseIds: List<String>,
     val workoutBExerciseIds: List<String>,
@@ -55,7 +57,7 @@ val allExercises = listOf(
     Exercise("cable_row", "Cable Row"),
     Exercise("seated_row", "Seated Row"),
     Exercise("pulldown", "Lat Pulldown"),
-    Exercise("close_grip_pulldown", "Close-Grip Pulldown"),
+    Exercise("close_grip_pulldown", "Close-Grip Lat Pulldown"),
     Exercise("pull_ups", "Pull Ups"),
     Exercise("chin_ups", "Chin Ups"),
     Exercise("t_bar_row", "T-Bar Row"),
@@ -125,7 +127,8 @@ val allExercises = listOf(
     Exercise("cable_crossover", "Cable Crossover")
 )
 
-// Default A/B config used on first launch
+// Default workout config used on first launch
+
 val defaultWorkoutConfig = UserWorkoutConfig(
     workoutAExerciseIds = listOf(
         "squat",

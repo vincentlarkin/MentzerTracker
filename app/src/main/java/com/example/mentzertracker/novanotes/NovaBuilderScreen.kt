@@ -11,7 +11,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,13 +46,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -62,7 +58,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.CUSTOM_EXERCISE_NAME_LIMIT
@@ -72,8 +67,15 @@ import com.vincentlarkin.mentzertracker.allExercises
 import java.util.Locale
 import java.util.UUID
 
+private data class ReferenceItem(
+    val exercise: Exercise,
+    val aliases: List<String>,
+    val isCustom: Boolean
+)
+
 @Composable
 fun NovaBuilderScreen(
+
     initialConfig: UserWorkoutConfig,
     onDone: (UserWorkoutConfig) -> Unit,
     showBack: Boolean = false,
@@ -87,28 +89,10 @@ fun NovaBuilderScreen(
         }
     }
 
-    val aSelections = remember(initialConfig) {
-        val initialA = initialConfig.workoutAExerciseIds.toSet()
-        mutableStateMapOf<String, Boolean>().apply {
-            (baseExercises + initialConfig.customExercises).forEach { ex ->
-                this[ex.id] = ex.id in initialA
-            }
-        }
-    }
-    val bSelections = remember(initialConfig) {
-        val initialB = initialConfig.workoutBExerciseIds.toSet()
-        mutableStateMapOf<String, Boolean>().apply {
-            (baseExercises + initialConfig.customExercises).forEach { ex ->
-                this[ex.id] = ex.id in initialB
-            }
-        }
-    }
-
     var errorText by remember { mutableStateOf<String?>(null) }
     var customNameInput by remember { mutableStateOf("") }
-    var addingToWorkout by remember { mutableStateOf<String?>(null) } // "A" or "B" or null
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Workout A, 1 = Workout B
     var searchQuery by remember { mutableStateOf("") }
+
 
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -117,56 +101,63 @@ fun NovaBuilderScreen(
     val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
     val outlineColor = MaterialTheme.colorScheme.outline
 
-    fun ensureSelectionEntry(id: String) {
-        if (aSelections[id] == null) aSelections[id] = false
-        if (bSelections[id] == null) bSelections[id] = false
-    }
-
-    fun addCustomExercise(rawName: String, forA: Boolean, forB: Boolean): String? {
+    fun addCustomExercise(rawName: String): String? {
         val trimmed = rawName.trim()
         if (trimmed.isEmpty()) return "Enter a name"
         if (trimmed.length > CUSTOM_EXERCISE_NAME_LIMIT) return "Too long"
-        
+
         val lower = trimmed.lowercase(Locale.getDefault())
         val existingNames = (baseExercises + customExercises).map { it.name.lowercase(Locale.getDefault()) }
         if (lower in existingNames) return "Already exists"
-        
+
         val existingIds = (baseExercises + customExercises).map { it.id }.toSet()
         val newExercise = Exercise(
             id = generateCustomExerciseId(existingIds),
             name = trimmed
         )
         customExercises.add(newExercise)
-        ensureSelectionEntry(newExercise.id)
-        aSelections[newExercise.id] = forA
-        bSelections[newExercise.id] = forB
         return null
     }
 
     fun removeCustomExercise(exercise: Exercise) {
         customExercises.removeAll { it.id == exercise.id }
-        aSelections.remove(exercise.id)
-        bSelections.remove(exercise.id)
     }
 
+
     val combinedExercises = baseExercises + customExercises.toList()
-    
+
+    val aliasMap = remember(combinedExercises) {
+        WorkoutParser.getAliasMap(combinedExercises)
+    }
+    val aliasesByExerciseName = remember(aliasMap) {
+        aliasMap.entries
+            .groupBy({ it.value }) { it.key }
+            .mapValues { entry -> entry.value.sorted() }
+    }
+
+    val referenceItems = remember(combinedExercises, aliasesByExerciseName) {
+        combinedExercises.map { exercise ->
+            ReferenceItem(
+                exercise = exercise,
+                aliases = aliasesByExerciseName[exercise.name].orEmpty(),
+                isCustom = customExercises.any { it.id == exercise.id }
+            )
+        }
+    }
+
     // Filter exercises based on search query
-    val filteredExercises = remember(combinedExercises, searchQuery) {
+    val filteredExercises = remember(referenceItems, searchQuery) {
         if (searchQuery.isBlank()) {
-            combinedExercises
+            referenceItems
         } else {
             val query = searchQuery.lowercase().trim()
-            combinedExercises.filter { exercise ->
-                exercise.name.lowercase().contains(query) ||
-                exercise.id.lowercase().contains(query)
+            referenceItems.filter { item ->
+                item.exercise.name.lowercase().contains(query) ||
+                item.aliases.any { alias -> alias.lowercase().contains(query) }
             }
         }
     }
-    
-    val selectedACount = aSelections.count { it.value }
-    val selectedBCount = bSelections.count { it.value }
-    val canSave = selectedACount >= 2 && selectedBCount >= 2
+
 
     Box(
         modifier = Modifier
@@ -202,14 +193,14 @@ fun NovaBuilderScreen(
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Build Your Workouts",
+                        text = "Workout Reference",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = onBackgroundColor,
                         letterSpacing = (-0.5).sp
                     )
                     Text(
-                        text = "Select exercises for each workout",
+                        text = "See official names and casual inputs",
                         fontSize = 14.sp,
                         color = onSurfaceVariantColor
                     )
@@ -232,36 +223,6 @@ fun NovaBuilderScreen(
                 }
             }
 
-            // Workout tabs
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                WorkoutTab(
-                    title = "Workout A",
-                    count = selectedACount,
-                    isSelected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    primaryColor = primaryColor,
-                    surfaceColor = surfaceColor,
-                    onBackgroundColor = onBackgroundColor,
-                    onSurfaceVariantColor = onSurfaceVariantColor,
-                    modifier = Modifier.weight(1f)
-                )
-                WorkoutTab(
-                    title = "Workout B",
-                    count = selectedBCount,
-                    isSelected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    primaryColor = primaryColor,
-                    surfaceColor = surfaceColor,
-                    onBackgroundColor = onBackgroundColor,
-                    onSurfaceVariantColor = onSurfaceVariantColor,
-                    modifier = Modifier.weight(1f)
-                )
-            }
 
             // Search bar
             Box(
@@ -329,14 +290,15 @@ fun NovaBuilderScreen(
             // Info text with result count
             Text(
                 text = if (searchQuery.isNotEmpty()) {
-                    "${filteredExercises.size} exercises found • Select at least 2 per workout"
+                    "${filteredExercises.size} exercises found"
                 } else {
-                    "${combinedExercises.size} exercises • Select at least 2 per workout"
+                    "${combinedExercises.size} exercises"
                 },
                 fontSize = 13.sp,
                 color = onSurfaceVariantColor,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+
 
             // Exercise list
             LazyColumn(
@@ -352,11 +314,7 @@ fun NovaBuilderScreen(
                         customNameInput = customNameInput,
                         onInputChange = { customNameInput = it },
                         onAdd = {
-                            val error = addCustomExercise(
-                                rawName = customNameInput,
-                                forA = selectedTab == 0,
-                                forB = selectedTab == 1
-                            )
+                            val error = addCustomExercise(customNameInput)
                             if (error == null) {
                                 customNameInput = ""
                             } else {
@@ -384,30 +342,10 @@ fun NovaBuilderScreen(
                 }
 
                 // Exercise items (filtered by search)
-                items(filteredExercises, key = { it.id }) { exercise ->
-                    val isSelected = if (selectedTab == 0) {
-                        aSelections[exercise.id] == true
-                    } else {
-                        bSelections[exercise.id] == true
-                    }
-                    val isCustom = customExercises.any { it.id == exercise.id }
-                    val isInOtherWorkout = if (selectedTab == 0) {
-                        bSelections[exercise.id] == true
-                    } else {
-                        aSelections[exercise.id] == true
-                    }
-
-                    ExerciseCard(
-                        exercise = exercise,
-                        isSelected = isSelected,
-                        isCustom = isCustom,
-                        isInOtherWorkout = isInOtherWorkout,
-                        onToggle = {
-                            val map = if (selectedTab == 0) aSelections else bSelections
-                            map[exercise.id] = !(map[exercise.id] ?: false)
-                            errorText = null
-                        },
-                        onDelete = if (isCustom) {{ removeCustomExercise(exercise) }} else null,
+                items(filteredExercises, key = { it.exercise.id }) { item ->
+                    ReferenceExerciseCard(
+                        item = item,
+                        onDelete = if (item.isCustom) {{ removeCustomExercise(item.exercise) }} else null,
                         surfaceColor = surfaceColor,
                         primaryColor = primaryColor,
                         onBackgroundColor = onBackgroundColor,
@@ -416,13 +354,17 @@ fun NovaBuilderScreen(
                     )
                 }
 
+
                 // Bottom padding
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
 
+        val canSave = true
+
         // Save button - floating at bottom
         AnimatedVisibility(
+
             visible = true,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -451,32 +393,16 @@ fun NovaBuilderScreen(
                         shape = RoundedCornerShape(14.dp)
                     )
                     .clickable(enabled = canSave) {
-                        val combined = (baseExercises + customExercises.toList()).distinctBy { it.id }
-                        val validIds = combined.map { it.id }.toSet()
-                        val aIds = aSelections
-                            .filter { (id, checked) -> checked && id in validIds }
-                            .keys
-                            .toList()
-                        val bIds = bSelections
-                            .filter { (id, checked) -> checked && id in validIds }
-                            .keys
-                            .toList()
-
-                        when {
-                            aIds.size < 2 -> errorText = "Need at least 2 exercises for Workout A"
-                            bIds.size < 2 -> errorText = "Need at least 2 exercises for Workout B"
-                            else -> {
-                                errorText = null
-                                onDone(
-                                    UserWorkoutConfig(
-                                        workoutAExerciseIds = aIds,
-                                        workoutBExerciseIds = bIds,
-                                        customExercises = customExercises.toList()
-                                    )
-                                )
-                            }
-                        }
+                        errorText = null
+                        onDone(
+                            UserWorkoutConfig(
+                                workoutAExerciseIds = initialConfig.workoutAExerciseIds,
+                                workoutBExerciseIds = initialConfig.workoutBExerciseIds,
+                                customExercises = customExercises.toList()
+                            )
+                        )
                     }
+
                     .padding(vertical = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -492,8 +418,8 @@ fun NovaBuilderScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (canSave) "Save Workouts" else "Select more exercises",
-                        color = if (canSave) Color.White else onSurfaceVariantColor,
+                        text = "Save Exercises",
+                        color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -503,58 +429,6 @@ fun NovaBuilderScreen(
     }
 }
 
-@Composable
-private fun WorkoutTab(
-    title: String,
-    count: Int,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    primaryColor: Color,
-    surfaceColor: Color,
-    onBackgroundColor: Color,
-    onSurfaceVariantColor: Color,
-    modifier: Modifier = Modifier
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0.97f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "tab_scale"
-    )
-
-    Box(
-        modifier = modifier
-            .scale(scale)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else surfaceColor)
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) primaryColor else surfaceColor,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
-            .padding(vertical = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) primaryColor else onBackgroundColor
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "$count selected",
-                fontSize = 13.sp,
-                color = if (isSelected) primaryColor.copy(alpha = 0.8f) else onSurfaceVariantColor
-            )
-        }
-    }
-}
 
 @Composable
 private fun AddExerciseCard(
@@ -638,12 +512,8 @@ private fun AddExerciseCard(
 }
 
 @Composable
-private fun ExerciseCard(
-    exercise: Exercise,
-    isSelected: Boolean,
-    isCustom: Boolean,
-    isInOtherWorkout: Boolean,
-    onToggle: () -> Unit,
+private fun ReferenceExerciseCard(
+    item: ReferenceItem,
     onDelete: (() -> Unit)?,
     surfaceColor: Color,
     primaryColor: Color,
@@ -651,84 +521,44 @@ private fun ExerciseCard(
     onSurfaceVariantColor: Color,
     outlineColor: Color
 ) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0.98f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "card_scale"
-    )
+    val inputHints = if (item.aliases.isNotEmpty()) {
+        item.aliases
+    } else {
+        listOf(item.exercise.name.lowercase(Locale.getDefault()))
+    }
 
     Row(
         modifier = Modifier
-            .scale(scale)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) primaryColor.copy(alpha = 0.1f) else surfaceColor)
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) primaryColor else outlineColor.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable(onClick = onToggle)
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Checkbox circle
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isSelected) primaryColor else Color.Transparent
-                )
-                .border(
-                    width = 2.dp,
-                    color = if (isSelected) primaryColor else outlineColor,
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-        
-        Spacer(modifier = Modifier.width(16.dp))
-        
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = exercise.name,
+                text = item.exercise.name,
                 fontSize = 15.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isSelected) primaryColor else onBackgroundColor
+                fontWeight = FontWeight.SemiBold,
+                color = onBackgroundColor
             )
-            if (isCustom || isInOtherWorkout) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
-                    if (isCustom) {
-                        Text(
-                            text = "Custom",
-                            fontSize = 12.sp,
-                            color = onSurfaceVariantColor
-                        )
-                    }
-                    if (isInOtherWorkout) {
-                        Text(
-                            text = "• Also in other workout",
-                            fontSize = 12.sp,
-                            color = primaryColor.copy(alpha = 0.7f)
-                        )
-                    }
-                }
+            Text(
+                text = "Type: ${inputHints.joinToString(", ")}",
+                fontSize = 12.sp,
+                color = onSurfaceVariantColor,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            if (item.isCustom) {
+                Text(
+                    text = "Custom exercise",
+                    fontSize = 12.sp,
+                    color = primaryColor.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
-        
+
         if (onDelete != null) {
             IconButton(
                 onClick = onDelete,
@@ -744,6 +574,7 @@ private fun ExerciseCard(
         }
     }
 }
+
 
 private fun generateCustomExerciseId(existingIds: Set<String>): String {
     var candidate: String

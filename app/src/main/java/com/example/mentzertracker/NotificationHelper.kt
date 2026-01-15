@@ -149,18 +149,9 @@ object NotificationHelper {
     }
 
     private fun buildReminderMessage(context: Context): String {
-        val logs = loadWorkoutLogs(context)
-        val nextTemplate = logs.lastOrNull()?.templateId?.let { lastId ->
-            if (lastId.equals("A", ignoreCase = true)) "B" else "A"
-        } ?: "A"
-
-        val workoutLabel = if (nextTemplate.equals("A", ignoreCase = true)) {
-            "Workout A"
-        } else {
-            "Workout B"
-        }
-        return "Time for $workoutLabel. Stay consistent with MentzerTracker."
+        return "Weekly check-in: log today’s workout and stay consistent."
     }
+
 
     @SuppressLint("MissingPermission")
     private fun showNotification(context: Context, title: String, message: String) {

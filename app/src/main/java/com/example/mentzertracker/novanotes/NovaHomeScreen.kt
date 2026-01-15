@@ -3,7 +3,6 @@ package com.vincentlarkin.mentzertracker.novanotes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -86,7 +85,7 @@ import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
 import com.vincentlarkin.mentzertracker.NotificationHelper
 import com.vincentlarkin.mentzertracker.NotificationSettingsDialog
-import com.vincentlarkin.mentzertracker.UserWorkoutConfig
+
 import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.allExercises
 import com.vincentlarkin.mentzertracker.loadWorkoutInterval
@@ -99,7 +98,6 @@ import java.util.concurrent.TimeUnit
 
 @Composable
 fun NovaHomeScreen(
-    workoutConfig: UserWorkoutConfig,
     customExercises: List<Exercise>,
     recentLogs: List<WorkoutLogEntry>,
     onSave: (List<ExerciseSetEntry>, String?, String) -> Unit, // Added templateId parameter
@@ -109,18 +107,9 @@ fun NovaHomeScreen(
     val allAvailableExercises = remember(customExercises) {
         (allExercises + customExercises).distinctBy { it.id }
     }
-    val exercisesById = remember(allAvailableExercises) {
-        allAvailableExercises.associateBy { it.id }
-    }
-    
-    // Get exercise names for A and B workouts
-    val workoutAExercises = remember(workoutConfig, exercisesById) {
-        workoutConfig.workoutAExerciseIds.mapNotNull { exercisesById[it]?.name }
-    }
-    val workoutBExercises = remember(workoutConfig, exercisesById) {
-        workoutConfig.workoutBExerciseIds.mapNotNull { exercisesById[it]?.name }
-    }
     val context = LocalContext.current
+
+
     var inputText by remember { mutableStateOf("") }
     var showSuccess by remember { mutableStateOf(false) }
     var showExamplesPopup by remember { mutableStateOf(false) }
@@ -150,35 +139,13 @@ fun NovaHomeScreen(
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     
-    // Track the most recent workout (regardless of A/B)
+    // Track the most recent workout
     val lastWorkout = remember(recentLogs) {
         recentLogs.maxByOrNull { it.id } // Most recent by timestamp
     }
-    
-    // A/B workout tracking (secondary)
-    val lastWorkoutA = remember(recentLogs) {
-        recentLogs.lastOrNull { it.templateId == "A" }
-    }
-    val lastWorkoutB = remember(recentLogs) {
-        recentLogs.lastOrNull { it.templateId == "B" }
-    }
-    
-    // Suggest next workout based on which is older (A/B), but this is optional
-    val suggestedNext = remember(lastWorkoutA, lastWorkoutB) {
-        when {
-            lastWorkoutA == null && lastWorkoutB == null -> "A"
-            lastWorkoutA == null -> "A"
-            lastWorkoutB == null -> "B"
-            else -> {
-                val dateA = parseDate(lastWorkoutA.date)
-                val dateB = parseDate(lastWorkoutB.date)
-                if (dateA == null || dateB == null) "A"
-                else if (dateA <= dateB) "A" else "B"
-            }
-        }
-    }
-    
-    var selectedWorkout by remember(suggestedNext) { mutableStateOf(suggestedNext) }
+
+    val todayTemplateId = "TODAY"
+
     
     val parseResult by remember(inputText) {
         derivedStateOf {
@@ -187,7 +154,9 @@ fun NovaHomeScreen(
         }
     }
     
-    val hasValidSets = parseResult?.parsedExercises?.isNotEmpty() == true
+    val hasUnknownLines = parseResult?.unrecognizedLines?.isNotEmpty() == true
+    val hasValidSets = parseResult?.parsedExercises?.isNotEmpty() == true && !hasUnknownLines
+
     
     // Success animation reset
     LaunchedEffect(showSuccess) {
@@ -233,7 +202,8 @@ fun NovaHomeScreen(
                 .imePadding()
                 .verticalScroll(scrollState)
         ) {
-            // Header with A/B toggle
+            // Header
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -243,7 +213,7 @@ fun NovaHomeScreen(
             ) {
                 Column {
                     Text(
-                        "Log Workout",
+                        "Today's Workout",
                         style = TextStyle(
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
@@ -310,11 +280,9 @@ fun NovaHomeScreen(
                         onClick = {
                             if (hasValidSets && parseResult != null) {
                                 val sets = WorkoutParser.toSetEntries(parseResult!!.parsedExercises)
-                                onSave(sets, null, selectedWorkout)
+                                onSave(sets, null, todayTemplateId)
                                 showSuccess = true
                                 inputText = ""
-                                // Toggle to next workout
-                                selectedWorkout = if (selectedWorkout == "A") "B" else "A"
                             }
                         },
                         enabled = hasValidSets,
@@ -334,21 +302,6 @@ fun NovaHomeScreen(
                     }
                 }
             }
-            
-            // A/B Workout Toggle
-            WorkoutToggle(
-                selectedWorkout = selectedWorkout,
-                onSelect = { selectedWorkout = it },
-                suggestedNext = suggestedNext,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                primaryColor = primaryColor,
-                surfaceColor = surfaceColor,
-                outlineColor = outlineColor,
-                textColor = onSurfaceColor,
-                secondaryColor = onSurfaceVariant
-            )
             
             Spacer(Modifier.height(16.dp))
             
@@ -406,7 +359,7 @@ fun NovaHomeScreen(
                     textStyle = TextStyle(
                         fontSize = 16.sp,
                         lineHeight = 26.sp,
-                        color = onSurfaceColor,
+                        color = if (hasUnknownLines) MaterialTheme.colorScheme.error else onSurfaceColor,
                         fontWeight = FontWeight.Normal
                     ),
                     cursorBrush = SolidColor(primaryColor)
@@ -450,6 +403,7 @@ fun NovaHomeScreen(
             Spacer(Modifier.height(12.dp))
             
             // Parsed results preview
+
             AnimatedVisibility(
                 visible = parseResult != null && parseResult!!.parsedExercises.isNotEmpty(),
                 enter = slideInVertically(
@@ -552,132 +506,8 @@ fun NovaHomeScreen(
 }
 
 @Composable
-private fun WorkoutToggle(
-    selectedWorkout: String,
-    onSelect: (String) -> Unit,
-    suggestedNext: String,
-    modifier: Modifier = Modifier,
-    primaryColor: Color,
-    surfaceColor: Color,
-    outlineColor: Color,
-    textColor: Color,
-    secondaryColor: Color
-) {
-    // Animated sliding indicator
-    val indicatorOffset by animateDpAsState(
-        targetValue = if (selectedWorkout == "A") 0.dp else 1.dp, // Used as a flag
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "indicator"
-    )
-    
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(surfaceColor)
-            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-            .padding(4.dp)
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            listOf("A", "B").forEach { workout ->
-                val isSelected = selectedWorkout == workout
-                val isSuggested = suggestedNext == workout
-                
-                // Animated scale for tap feedback
-                val scale by animateFloatAsState(
-                    targetValue = if (isSelected) 1f else 0.98f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    ),
-                    label = "scale"
-                )
-                
-                // Animated background alpha
-                val bgAlpha by animateFloatAsState(
-                    targetValue = if (isSelected) 1f else 0f,
-                    animationSpec = tween(200),
-                    label = "bgAlpha"
-                )
-                
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .scale(scale)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(primaryColor.copy(alpha = bgAlpha))
-                        .then(
-                            if (!isSelected) {
-                                Modifier.border(
-                                    1.dp,
-                                    outlineColor.copy(alpha = 0.2f),
-                                    RoundedCornerShape(10.dp)
-                                )
-                            } else Modifier
-                        )
-                        .clickable { onSelect(workout) }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        // Animated icon for selected state
-                        AnimatedVisibility(
-                            visible = isSelected,
-                            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
-                            exit = scaleOut() + fadeOut()
-                        ) {
-                            Row {
-                                Icon(
-                                    Icons.Default.FitnessCenter,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-                        }
-                        
-                        Text(
-                            "Workout $workout",
-                            style = TextStyle(
-                                fontSize = 15.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (isSelected) Color.White else textColor
-                            )
-                        )
-                        
-                        // Suggested indicator (dot) for non-selected
-                        AnimatedVisibility(
-                            visible = isSuggested && !isSelected,
-                            enter = scaleIn() + fadeIn(),
-                            exit = scaleOut() + fadeOut()
-                        ) {
-                            Row {
-                                Spacer(Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(primaryColor)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ScheduleCard(
+
     lastWorkout: WorkoutLogEntry?,
     totalWorkouts: Int,
     workoutIntervalDays: Int,
@@ -1160,15 +990,8 @@ data class ExampleItem(
     val output: String
 )
 
-private fun parseDate(dateStr: String): Long? {
-    return try {
-        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
-    } catch (e: Exception) {
-        null
-    }
-}
-
 private fun generateTypingSuggestions(
+
     currentInput: String,
     exercises: List<Exercise>
 ): List<String> {

@@ -1,6 +1,7 @@
 # MentzerTracker
 
-A flexible workout logging app for Android, with optional A/B workout tracking inspired by Mike Mentzer's High Intensity Training.
+A flexible workout logging app for Android focused on fast, natural workout entry.
+
 
 ## Screenshots
 
@@ -27,7 +28,8 @@ A flexible workout logging app for Android, with optional A/B workout tracking i
 ### Scheduling
 - **Flexible intervals** - Daily, weekly, or custom (every X days)
 - **Simple schedule card** - Shows last workout and when next is due
-- **Optional A/B tracking** - Traditional split if you want it
+- **Simple scheduling** - Set intervals for reminders and recovery
+
 - **Notifications** - Customizable workout reminders
 
 ### Other
@@ -80,8 +82,8 @@ app/src/main/java/com/example/mentzertracker/
 ├── NovaProgressScreen.kt      # Charts and history
 ├── NovaSettingsScreen.kt      # App settings
 ├── WorkoutData.kt             # Exercise definitions
-├── NotificationHelper.kt      # Reminder scheduling
-└── legacy/                    # Archived v1 code
+└── NotificationHelper.kt      # Reminder scheduling
+
 ```
 
 ## License

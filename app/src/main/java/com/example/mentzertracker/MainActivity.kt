@@ -281,22 +281,41 @@ private fun parseBackupSnapshot(json: String): BackupSnapshot {
     }
     val root = element.asJsonObject
 
-    if (!root.has("workoutConfig") || !root.get("workoutConfig").isJsonObject) {
-        throw IllegalArgumentException("Backup file missing workoutConfig.")
+    val configObject = if (root.has("workoutConfig") && root.get("workoutConfig").isJsonObject) {
+        root.getAsJsonObject("workoutConfig")
+    } else {
+        val defaultConfig = gson.toJsonTree(defaultWorkoutConfig).asJsonObject
+        root.add("workoutConfig", defaultConfig)
+        defaultConfig
     }
-    val configObject = root.getAsJsonObject("workoutConfig")
     ensureJsonArray(configObject, "workoutAExerciseIds")
     ensureJsonArray(configObject, "workoutBExerciseIds")
     ensureJsonArray(configObject, "customExercises")
 
-    if (!root.has("workoutLogs") || !root.get("workoutLogs").isJsonArray) {
-        root.add("workoutLogs", JsonArray())
-    } else {
-        val logsArray = root.getAsJsonArray("workoutLogs")
-        logsArray.forEach { logElement ->
-            if (logElement.isJsonObject) {
-                val logObject = logElement.asJsonObject
-                ensureJsonArray(logObject, "sets")
+    val logsArray = when {
+        root.has("workoutLogs") && root.get("workoutLogs").isJsonArray -> {
+            root.getAsJsonArray("workoutLogs")
+        }
+        root.has("workoutLog") && root.get("workoutLog").isJsonObject -> {
+            JsonArray().also {
+                it.add(root.getAsJsonObject("workoutLog"))
+                root.add("workoutLogs", it)
+            }
+        }
+        else -> {
+            JsonArray().also { root.add("workoutLogs", it) }
+        }
+    }
+
+    logsArray.forEach { logElement ->
+        if (logElement.isJsonObject) {
+            val logObject = logElement.asJsonObject
+            ensureJsonArray(logObject, "sets")
+            if (!logObject.has("templateId") || logObject.get("templateId").isJsonNull) {
+                logObject.addProperty("templateId", "TODAY")
+            }
+            if (!logObject.has("date") || logObject.get("date").isJsonNull) {
+                logObject.addProperty("date", "")
             }
         }
     }
@@ -304,6 +323,7 @@ private fun parseBackupSnapshot(json: String): BackupSnapshot {
     return gson.fromJson(root, BackupSnapshot::class.java)
         ?: throw IllegalArgumentException("Unable to parse backup.")
 }
+
 
 private fun ensureJsonArray(obj: com.google.gson.JsonObject, key: String) {
     if (!obj.has(key) || !obj.get(key).isJsonArray) {
@@ -317,10 +337,12 @@ private fun sanitizeImportLogs(rawLogs: List<WorkoutLogEntry>): List<WorkoutLogE
         if (sanitizedSets.isEmpty()) {
             null
         } else {
-            log.copy(sets = sanitizedSets)
+            val templateId = log.templateId.ifBlank { "TODAY" }
+            log.copy(sets = sanitizedSets, templateId = templateId)
         }
     }
 }
+
 
 // ---------- ROOT / FLOW CONTROL ----------
 @Composable

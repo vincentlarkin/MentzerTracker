@@ -44,6 +44,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.vincentlarkin.mentzertracker.BuildConfig
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -307,14 +309,41 @@ fun NovaSettingsScreen(
             SettingsCard(surfaceColor, outlineColor) {
                 SettingsRow(
                     icon = Icons.Default.FitnessCenter,
-                    title = "Edit Exercises",
-                    subtitle = "Configure your A/B workouts",
+                    title = "Exercise Reference",
+                    subtitle = "View official names and aliases",
                     onClick = onEditWorkouts,
                     surfaceVariant = surfaceVariant,
                     textColor = onSurfaceColor,
                     secondaryColor = onSurfaceVariant
                 )
+
+                if (BuildConfig.DEBUG) {
+                    SettingsDivider(outlineColor)
+                    SettingsRow(
+                        icon = Icons.Default.Code,
+                        title = "A/B workouts (debug)",
+                        subtitle = "Coming soon",
+                        onClick = null,
+                        surfaceVariant = surfaceVariant,
+                        textColor = onSurfaceColor,
+                        secondaryColor = onSurfaceVariant,
+                        trailing = {
+                            Switch(
+                                checked = false,
+                                onCheckedChange = null,
+                                enabled = false,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = primaryColor,
+                                    checkedTrackColor = primaryColor.copy(alpha = 0.3f),
+                                    uncheckedThumbColor = onSurfaceVariant,
+                                    uncheckedTrackColor = outlineColor
+                                )
+                            )
+                        }
+                    )
+                }
             }
+
             
             Spacer(Modifier.height(24.dp))
             

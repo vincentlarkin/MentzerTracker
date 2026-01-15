@@ -263,7 +263,8 @@ fun NovaSplashScreen(
                         )
             ) {
                 Text(
-                    text = "Track your A/B workouts\nwith natural language",
+                    text = "Log today’s workout\nwith natural language",
+
                     fontSize = 16.sp,
                     color = onSurfaceVariantColor,
                     textAlign = TextAlign.Center,
