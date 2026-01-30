@@ -89,6 +89,7 @@ fun NovaSettingsScreen(
     val scope = rememberCoroutineScope()
     val isDarkMode = themeMode == ThemeMode.DARK
     val appVersion = remember { resolveAppVersion(context) }
+    val footerYear = remember { SimpleDateFormat("yyyy", Locale.getDefault()).format(Date()) }
     
     // Get theme colors
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -488,7 +489,7 @@ fun NovaSettingsScreen(
             
             // Footer
             Text(
-                "Made with ❤️ by Vincent L · 2025",
+                "$footerYear * Vincent L",
                 style = TextStyle(
                     fontSize = 13.sp,
                     color = onSurfaceVariant,

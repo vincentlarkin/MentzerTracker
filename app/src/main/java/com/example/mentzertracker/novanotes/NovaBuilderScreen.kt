@@ -91,6 +91,7 @@ fun NovaBuilderScreen(
 
     var errorText by remember { mutableStateOf<String?>(null) }
     var customNameInput by remember { mutableStateOf("") }
+    var customAliasInput by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
 
 
@@ -101,19 +102,31 @@ fun NovaBuilderScreen(
     val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
     val outlineColor = MaterialTheme.colorScheme.outline
 
-    fun addCustomExercise(rawName: String): String? {
-        val trimmed = rawName.trim()
-        if (trimmed.isEmpty()) return "Enter a name"
-        if (trimmed.length > CUSTOM_EXERCISE_NAME_LIMIT) return "Too long"
+    fun addCustomExercise(rawName: String, rawAlias: String): String? {
+        val trimmedName = rawName.trim()
+        if (trimmedName.isEmpty()) return "Enter a name"
+        if (trimmedName.length > CUSTOM_EXERCISE_NAME_LIMIT) return "Name too long"
 
-        val lower = trimmed.lowercase(Locale.getDefault())
+        val lowerName = trimmedName.lowercase(Locale.getDefault())
         val existingNames = (baseExercises + customExercises).map { it.name.lowercase(Locale.getDefault()) }
-        if (lower in existingNames) return "Already exists"
+        if (lowerName in existingNames) return "Already exists"
+
+        val trimmedAlias = rawAlias.trim()
+        val lowerAlias = trimmedAlias.lowercase(Locale.getDefault())
+        val aliasToStore = if (lowerAlias.isNotBlank() && lowerAlias != lowerName) lowerAlias else ""
+        if (aliasToStore.isNotEmpty()) {
+            if (aliasToStore.length > CUSTOM_EXERCISE_NAME_LIMIT) return "Alias too long"
+            val existingAliases = WorkoutParser.getAliasMap(baseExercises + customExercises.toList())
+                .keys
+                .map { it.lowercase(Locale.getDefault()) }
+            if (lowerAlias in existingAliases || lowerAlias in existingNames) return "Alias already used"
+        }
 
         val existingIds = (baseExercises + customExercises).map { it.id }.toSet()
         val newExercise = Exercise(
             id = generateCustomExerciseId(existingIds),
-            name = trimmed
+            name = trimmedName,
+            aliases = if (aliasToStore.isNotEmpty()) listOf(aliasToStore) else emptyList()
         )
         customExercises.add(newExercise)
         return null
@@ -312,11 +325,14 @@ fun NovaBuilderScreen(
                 item {
                     AddExerciseCard(
                         customNameInput = customNameInput,
-                        onInputChange = { customNameInput = it },
+                        customAliasInput = customAliasInput,
+                        onNameChange = { customNameInput = it },
+                        onAliasChange = { customAliasInput = it },
                         onAdd = {
-                            val error = addCustomExercise(customNameInput)
+                            val error = addCustomExercise(customNameInput, customAliasInput)
                             if (error == null) {
                                 customNameInput = ""
+                                customAliasInput = ""
                             } else {
                                 errorText = error
                             }
@@ -375,7 +391,10 @@ fun NovaBuilderScreen(
         ) {
             val scale by animateFloatAsState(
                 targetValue = if (canSave) 1f else 0.95f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
                 label = "save_scale"
             )
             
@@ -433,7 +452,9 @@ fun NovaBuilderScreen(
 @Composable
 private fun AddExerciseCard(
     customNameInput: String,
-    onInputChange: (String) -> Unit,
+    customAliasInput: String,
+    onNameChange: (String) -> Unit,
+    onAliasChange: (String) -> Unit,
     onAdd: () -> Unit,
     surfaceColor: Color,
     primaryColor: Color,
@@ -467,31 +488,57 @@ private fun AddExerciseCard(
         
         Spacer(modifier = Modifier.width(12.dp))
         
-        BasicTextField(
-            value = customNameInput,
-            onValueChange = { if (it.length <= CUSTOM_EXERCISE_NAME_LIMIT) onInputChange(it) },
-            modifier = Modifier.weight(1f),
-            textStyle = TextStyle(
-                fontSize = 15.sp,
-                color = onBackgroundColor
-            ),
-            singleLine = true,
-            cursorBrush = SolidColor(primaryColor),
-            decorationBox = { innerTextField ->
-                Box {
-                    if (customNameInput.isEmpty()) {
-                        Text(
-                            text = "Add custom exercise...",
-                            color = onSurfaceVariantColor,
-                            fontSize = 15.sp
-                        )
+        Column(modifier = Modifier.weight(1f)) {
+            BasicTextField(
+                value = customNameInput,
+                onValueChange = { if (it.length <= CUSTOM_EXERCISE_NAME_LIMIT) onNameChange(it) },
+                textStyle = TextStyle(
+                    fontSize = 15.sp,
+                    color = onBackgroundColor
+                ),
+                singleLine = true,
+                cursorBrush = SolidColor(primaryColor),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (customNameInput.isEmpty()) {
+                            Text(
+                                text = "Proper Name",
+                                color = onSurfaceVariantColor,
+                                fontSize = 15.sp
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
                 }
-            }
-        )
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            BasicTextField(
+                value = customAliasInput,
+                onValueChange = { if (it.length <= CUSTOM_EXERCISE_NAME_LIMIT) onAliasChange(it) },
+                textStyle = TextStyle(
+                    fontSize = 14.sp,
+                    color = onBackgroundColor
+                ),
+                singleLine = true,
+                cursorBrush = SolidColor(primaryColor),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (customAliasInput.isEmpty()) {
+                            Text(
+                                text = "Alias (optional)",
+                                color = onSurfaceVariantColor,
+                                fontSize = 14.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        }
         
-        if (customNameInput.isNotEmpty()) {
+        if (customNameInput.isNotBlank()) {
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier

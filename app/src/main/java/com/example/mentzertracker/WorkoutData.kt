@@ -4,7 +4,8 @@ package com.vincentlarkin.mentzertracker
 
 data class Exercise(
     val id: String,
-    val name: String
+    val name: String,
+    val aliases: List<String>? = null
 )
 
 data class WorkoutTemplate(

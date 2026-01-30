@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.ThemeMode
 import com.vincentlarkin.mentzertracker.importBackupFromJson
+import com.vincentlarkin.mentzertracker.resolveAppVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -76,6 +77,7 @@ fun NovaSplashScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showImportConfirm by remember { mutableStateOf(false) }
+    val appVersion = remember { resolveAppVersion(context) }
     
     // Animation states
     var showContent by remember { mutableStateOf(false) }
@@ -346,7 +348,7 @@ fun NovaSplashScreen(
             enter = fadeIn(tween(600, delayMillis = 800))
         ) {
             Text(
-                text = "v2.0.1-beta",
+                text = appVersion,
                 fontSize = 12.sp,
                 color = onSurfaceVariantColor.copy(alpha = 0.5f)
             )

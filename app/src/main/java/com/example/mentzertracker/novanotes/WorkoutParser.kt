@@ -3,6 +3,7 @@ package com.vincentlarkin.mentzertracker.novanotes
 import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
 import com.vincentlarkin.mentzertracker.allExercises
+import java.util.Locale
 
 /**
  * Parsed result from a single line of workout text.
@@ -391,11 +392,35 @@ object WorkoutParser {
      */
     fun getAliasMap(availableExercises: List<Exercise>): Map<String, String> {
         val exercisesById = availableExercises.associateBy { it.id }
-        return exerciseAliases.mapNotNull { (alias, id) ->
+        val aliasLookup = buildAliasLookup(availableExercises)
+        return aliasLookup.mapNotNull { (alias, id) ->
             exercisesById[id]?.let { exercise ->
                 alias to exercise.name
             }
         }.toMap()
+    }
+
+    private fun normalizeAlias(alias: String): String {
+        return alias.trim().lowercase(Locale.ROOT)
+    }
+
+    private fun buildAliasLookup(availableExercises: List<Exercise>): Map<String, String> {
+        val exercisesById = availableExercises.associateBy { it.id }
+        val combined = mutableMapOf<String, String>()
+        exerciseAliases.forEach { (alias, id) ->
+            if (exercisesById.containsKey(id)) {
+                combined[alias] = id
+            }
+        }
+        availableExercises.forEach { exercise ->
+            exercise.aliases.orEmpty().forEach { alias ->
+                val normalized = normalizeAlias(alias)
+                if (normalized.isNotBlank() && !combined.containsKey(normalized)) {
+                    combined[normalized] = exercise.id
+                }
+            }
+        }
+        return combined
     }
     
     /**
@@ -437,10 +462,11 @@ object WorkoutParser {
         var remainingText = normalizedLine
         
         // First check aliases (longer matches first)
-        val sortedAliases = exerciseAliases.keys.sortedByDescending { it.length }
+        val aliasLookup = buildAliasLookup(availableExercises)
+        val sortedAliases = aliasLookup.keys.sortedByDescending { it.length }
         for (alias in sortedAliases) {
             if (normalizedLine.startsWith(alias)) {
-                val exerciseId = exerciseAliases[alias]
+                val exerciseId = aliasLookup[alias]
                 matchedExercise = availableExercises.find { it.id == exerciseId }
                 if (matchedExercise != null) {
                     remainingText = normalizedLine.removePrefix(alias).trim()
