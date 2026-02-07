@@ -75,6 +75,7 @@ fun NovaAppShell(
 ) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NovaTab.LOG) }
+    var logDraftText by remember { mutableStateOf("") }
     
     val combinedExercises = remember(config) {
         (allExercises + config.customExercises).distinctBy { it.id }
@@ -114,6 +115,8 @@ fun NovaAppShell(
                     NovaHomeScreen(
                         customExercises = config.customExercises,
                         recentLogs = logEntries.toList(),
+                        inputText = logDraftText,
+                        onInputTextChange = { logDraftText = it },
                         onSave = { sets, notes, templateId ->
                             val entry = WorkoutLogEntry(
                                 id = System.currentTimeMillis(),

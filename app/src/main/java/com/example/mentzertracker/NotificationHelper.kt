@@ -91,7 +91,7 @@ object NotificationHelper {
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             NOTIFICATION_WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
             request
         )
     }

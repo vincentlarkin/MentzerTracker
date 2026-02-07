@@ -323,6 +323,45 @@ fun NovaProgressScreen(
                         textColor = onSurfaceColor,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        "Latest by Exercise",
+                        style = TextStyle(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = onBackgroundColor
+                        ),
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+
+                    val latestByExercise = remember(historiesWithLogs) {
+                        historiesWithLogs.mapNotNull { (exercise, sessions) ->
+                            val latestSession = sessions.maxWithOrNull(
+                                compareBy<SessionWithLog> {
+                                    parseIsoDateMillis(it.point.date) ?: Long.MIN_VALUE
+                                }.thenBy { it.point.sessionIndex }
+                            )
+                            latestSession?.let { exercise to it.point }
+                        }.sortedBy { it.first.name }
+                    }
+
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(latestByExercise) { (exercise, latestPoint) ->
+                            LatestExerciseRow(
+                                exerciseName = exercise.name,
+                                point = latestPoint,
+                                surfaceColor = surfaceVariant,
+                                primaryColor = primaryColor,
+                                textColor = onSurfaceColor,
+                                secondaryColor = onSurfaceVariant
+                            )
+                        }
+                    }
                 } else {
                     selectedExercise?.let { exercise ->
                         val history = histories[exercise] ?: emptyList()
@@ -728,6 +767,71 @@ private fun SessionRow(
                 modifier = Modifier.size(16.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun LatestExerciseRow(
+    exerciseName: String,
+    point: SessionPoint,
+    surfaceColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryColor: Color
+) {
+    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
+    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val formattedDate = try {
+        val date = inputFormatter.parse(point.date)
+        date?.let { dateFormatter.format(it) } ?: point.date
+    } catch (e: Exception) {
+        point.date
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(surfaceColor)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                exerciseName,
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = textColor
+                )
+            )
+            Text(
+                formattedDate,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    color = secondaryColor
+                )
+            )
+        }
+
+        Text(
+            "${point.weight.toInt()} lbs",
+            style = TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = primaryColor
+            )
+        )
+
+        Spacer(Modifier.width(10.dp))
+
+        Text(
+            "${point.reps} reps",
+            style = TextStyle(
+                fontSize = 13.sp,
+                color = secondaryColor
+            )
+        )
     }
 }
 

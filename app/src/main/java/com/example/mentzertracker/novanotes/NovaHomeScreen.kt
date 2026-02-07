@@ -100,6 +100,8 @@ import java.util.concurrent.TimeUnit
 fun NovaHomeScreen(
     customExercises: List<Exercise>,
     recentLogs: List<WorkoutLogEntry>,
+    inputText: String,
+    onInputTextChange: (String) -> Unit,
     onSave: (List<ExerciseSetEntry>, String?, String) -> Unit, // Added templateId parameter
     modifier: Modifier = Modifier
 ) {
@@ -110,7 +112,6 @@ fun NovaHomeScreen(
     val context = LocalContext.current
 
 
-    var inputText by remember { mutableStateOf("") }
     var showSuccess by remember { mutableStateOf(false) }
     var showExamplesPopup by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
@@ -282,7 +283,7 @@ fun NovaHomeScreen(
                                 val sets = WorkoutParser.toSetEntries(parseResult!!.parsedExercises)
                                 onSave(sets, null, todayTemplateId)
                                 showSuccess = true
-                                inputText = ""
+                                onInputTextChange("")
                             }
                         },
                         enabled = hasValidSets,
@@ -352,7 +353,7 @@ fun NovaHomeScreen(
                 
                 BasicTextField(
                     value = inputText,
-                    onValueChange = { inputText = it },
+                    onValueChange = onInputTextChange,
                     modifier = Modifier
                         .fillMaxSize()
                         .focusRequester(focusRequester),
@@ -386,10 +387,10 @@ fun NovaHomeScreen(
                             onClick = {
                                 val lines = inputText.lines().toMutableList()
                                 if (lines.isEmpty()) {
-                                    inputText = suggestion
+                                    onInputTextChange(suggestion)
                                 } else {
                                     lines[lines.lastIndex] = suggestion
-                                    inputText = lines.joinToString("\n")
+                                    onInputTextChange(lines.joinToString("\n"))
                                 }
                             },
                             surfaceColor = surfaceVariant,
