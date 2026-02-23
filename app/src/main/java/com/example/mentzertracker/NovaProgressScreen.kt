@@ -92,6 +92,25 @@ private data class EditableSession(
     val originalReps: Int
 )
 
+private enum class ProgressViewMode {
+    SINGLE_EXERCISE,
+    ALL_EXERCISES,
+    BY_DATE
+}
+
+private data class DailyExerciseSummary(
+    val exerciseName: String,
+    val setCount: Int,
+    val topWeight: Float,
+    val bestReps: Int
+)
+
+private data class DailyWorkoutSummary(
+    val date: String,
+    val focusLabel: String,
+    val exercises: List<DailyExerciseSummary>
+)
+
 @Composable
 fun NovaProgressScreen(
     logs: List<WorkoutLogEntry>,
@@ -101,7 +120,7 @@ fun NovaProgressScreen(
 ) {
     var selectedExercise by remember { mutableStateOf<Exercise?>(null) }
     var showExercisePicker by remember { mutableStateOf(false) }
-    var showAllExercises by remember { mutableStateOf(false) }
+    var progressViewMode by remember { mutableStateOf(ProgressViewMode.SINGLE_EXERCISE) }
     
     // Edit state
     var editingSession by remember { mutableStateOf<EditableSession?>(null) }
@@ -154,6 +173,10 @@ fun NovaProgressScreen(
     // Also keep simple history map for compatibility
     val histories: Map<Exercise, List<SessionPoint>> = remember(historiesWithLogs) {
         historiesWithLogs.mapValues { (_, sessions) -> sessions.map { it.point } }
+    }
+
+    val dailyWorkoutSummaries = remember(logs, exercises) {
+        buildDailyWorkoutSummaries(logs, exercises)
     }
     
     // Auto-select first exercise with history
@@ -262,12 +285,19 @@ fun NovaProgressScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            if (showAllExercises) "📊 All Exercises" 
-                            else selectedExercise?.name ?: "Select exercise",
+                            when (progressViewMode) {
+                                ProgressViewMode.ALL_EXERCISES -> "📊 All Exercises"
+                                ProgressViewMode.BY_DATE -> "🗓 See By Date"
+                                ProgressViewMode.SINGLE_EXERCISE -> selectedExercise?.name ?: "Select exercise"
+                            },
                             style = TextStyle(
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = if (showAllExercises) primaryColor else onSurfaceColor
+                                color = if (progressViewMode == ProgressViewMode.SINGLE_EXERCISE) {
+                                    onSurfaceColor
+                                } else {
+                                    primaryColor
+                                }
                             )
                         )
                         Icon(
@@ -280,200 +310,358 @@ fun NovaProgressScreen(
                 
                 Spacer(Modifier.height(20.dp))
                 
-                // Graph card - shows either single exercise or all exercises
-                if (showAllExercises) {
-                    // Multi-exercise chart
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(surfaceColor)
-                            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Text(
-                                "Overall Progress",
-                                style = TextStyle(
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = onSurfaceVariant
-                                ),
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            
-                            MultiExerciseLineChart(
-                                exerciseData = histories,
-                                modifier = Modifier.fillMaxSize(),
-                                primaryColor = primaryColor,
-                                backgroundColor = backgroundColor,
-                                textColor = onSurfaceVariant,
-                                gridColor = outlineColor
-                            )
-                        }
-                    }
-                    
-                    Spacer(Modifier.height(16.dp))
-                    
-                    // Legend for all exercises
-                    ExerciseLegend(
-                        exercises = histories.keys.toList(),
-                        surfaceColor = surfaceVariant,
-                        textColor = onSurfaceColor,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Text(
-                        "Latest by Exercise",
-                        style = TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = onBackgroundColor
-                        ),
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-
-                    val latestByExercise = remember(historiesWithLogs) {
-                        historiesWithLogs.mapNotNull { (exercise, sessions) ->
-                            val latestSession = sessions.maxWithOrNull(
-                                compareBy<SessionWithLog> {
-                                    parseIsoDateMillis(it.point.date) ?: Long.MIN_VALUE
-                                }.thenBy { it.point.sessionIndex }
-                            )
-                            latestSession?.let { exercise to it.point }
-                        }.sortedBy { it.first.name }
-                    }
-
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(latestByExercise) { (exercise, latestPoint) ->
-                            LatestExerciseRow(
-                                exerciseName = exercise.name,
-                                point = latestPoint,
-                                surfaceColor = surfaceVariant,
-                                primaryColor = primaryColor,
-                                textColor = onSurfaceColor,
-                                secondaryColor = onSurfaceVariant
-                            )
-                        }
-                    }
-                } else {
-                    selectedExercise?.let { exercise ->
-                        val history = histories[exercise] ?: emptyList()
-                        
+                // Graph card and list mode
+                when (progressViewMode) {
+                    ProgressViewMode.ALL_EXERCISES -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(240.dp)
+                                .height(280.dp)
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(surfaceColor)
                                 .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
                                 .padding(16.dp)
                         ) {
-                            if (history.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "No data yet",
-                                        style = TextStyle(
-                                            fontSize = 15.sp,
-                                            color = onSurfaceVariant
-                                        )
-                                    )
-                                }
-                            } else {
-                                NovaLineChart(
-                                    history = history,
+                            Column {
+                                Text(
+                                    "Overall Progress",
+                                    style = TextStyle(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = onSurfaceVariant
+                                    ),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                MultiExerciseLineChart(
+                                    exerciseData = histories,
                                     modifier = Modifier.fillMaxSize(),
                                     primaryColor = primaryColor,
                                     backgroundColor = backgroundColor,
-                                    surfaceColor = surfaceColor,
                                     textColor = onSurfaceVariant,
                                     gridColor = outlineColor
                                 )
                             }
                         }
-                        
-                        Spacer(Modifier.height(20.dp))
-                        
-                        // Recent sessions
-                    val sessionsWithLogs = historiesWithLogs[exercise] ?: emptyList()
-                    if (sessionsWithLogs.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "Recent",
-                                style = TextStyle(
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = onBackgroundColor
+
+                        Spacer(Modifier.height(16.dp))
+
+                        ExerciseLegend(
+                            exercises = histories.keys.toList(),
+                            surfaceColor = surfaceVariant,
+                            textColor = onSurfaceColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+
+                        Text(
+                            "Latest by Exercise",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = onBackgroundColor
+                            ),
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+
+                        val latestByExercise = remember(historiesWithLogs) {
+                            historiesWithLogs.mapNotNull { (exercise, sessions) ->
+                                val latestSession = sessions.maxWithOrNull(
+                                    compareBy<SessionWithLog> {
+                                        parseIsoDateMillis(it.point.date) ?: Long.MIN_VALUE
+                                    }.thenBy { it.point.sessionIndex }
                                 )
-                            )
-                            Text(
-                                "Tap to edit",
-                                style = TextStyle(
-                                    fontSize = 12.sp,
-                                    color = onSurfaceVariant
-                                )
-                            )
+                                latestSession?.let { exercise to it.point }
+                            }.sortedBy { it.first.name }
                         }
-                        
+
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            itemsIndexed(sessionsWithLogs.reversed().take(10)) { index, sessionWithLog ->
-                                var visible by remember { mutableStateOf(false) }
-                                LaunchedEffect(Unit) {
-                                    delay(index * 50L)
-                                    visible = true
-                                }
-                                
-                                AnimatedVisibility(
-                                    visible = visible,
-                                    enter = slideInVertically(
-                                        initialOffsetY = { 20 },
-                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                                    ) + fadeIn()
+                            items(latestByExercise) { (exercise, latestPoint) ->
+                                LatestExerciseRow(
+                                    exerciseName = exercise.name,
+                                    point = latestPoint,
+                                    surfaceColor = surfaceVariant,
+                                    primaryColor = primaryColor,
+                                    textColor = onSurfaceColor,
+                                    secondaryColor = onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    ProgressViewMode.BY_DATE -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(surfaceColor)
+                                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                .padding(16.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    "Overall Progress",
+                                    style = TextStyle(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = onSurfaceVariant
+                                    ),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                MultiExerciseLineChart(
+                                    exerciseData = histories,
+                                    modifier = Modifier.fillMaxSize(),
+                                    primaryColor = primaryColor,
+                                    backgroundColor = backgroundColor,
+                                    textColor = onSurfaceVariant,
+                                    gridColor = outlineColor
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+
+                        ExerciseLegend(
+                            exercises = histories.keys.toList(),
+                            surfaceColor = surfaceVariant,
+                            textColor = onSurfaceColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+
+                        Text(
+                            "Workouts by Date",
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = onBackgroundColor
+                            ),
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            items(dailyWorkoutSummaries) { summary ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(surfaceVariant)
+                                        .border(1.dp, outlineColor.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    SessionRow(
-                                        point = sessionWithLog.point,
-                                        surfaceColor = surfaceVariant,
-                                        primaryColor = primaryColor,
-                                        textColor = onSurfaceColor,
-                                        secondaryColor = onSurfaceVariant,
-                                        onClick = {
-                                            editingSession = EditableSession(
-                                                logId = sessionWithLog.logId,
-                                                exerciseId = sessionWithLog.exerciseId,
-                                                setIndex = sessionWithLog.setIndex,
-                                                originalDate = sessionWithLog.point.date,
-                                                originalWeight = sessionWithLog.point.weight,
-                                                originalReps = sessionWithLog.point.reps
-                                            )
-                                            editDate = sessionWithLog.point.date
-                                            editWeight = sessionWithLog.point.weight.toString()
-                                            editReps = sessionWithLog.point.reps.toString()
-                                        }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(1.dp)
+                                                .background(primaryColor.copy(alpha = 0.45f))
+                                        )
+                                        Text(
+                                            text = formatWorkoutDate(summary.date),
+                                            style = TextStyle(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = primaryColor
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 10.dp)
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(1.dp)
+                                                .background(primaryColor.copy(alpha = 0.45f))
+                                        )
+                                    }
+                                    Text(
+                                        text = summary.focusLabel,
+                                        style = TextStyle(
+                                            fontSize = 12.sp,
+                                            color = onSurfaceVariant
+                                        )
                                     )
+                                    summary.exercises.forEach { dayExercise ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(surfaceColor)
+                                                .border(
+                                                    1.dp,
+                                                    outlineColor.copy(alpha = 0.2f),
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = dayExercise.exerciseName,
+                                                style = TextStyle(
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = onSurfaceColor
+                                                ),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .background(primaryColor.copy(alpha = 0.12f))
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${dayExercise.setCount} set" + if (dayExercise.setCount == 1) "" else "s",
+                                                        style = TextStyle(
+                                                            fontSize = 11.sp,
+                                                            color = primaryColor
+                                                        )
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "${formatCompactWeight(dayExercise.topWeight)} × ${dayExercise.bestReps}",
+                                                    style = TextStyle(
+                                                        fontSize = 12.sp,
+                                                        color = onSurfaceVariant
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    } // End of selectedExercise?.let
-                } // End of else (single exercise view)
+
+                    ProgressViewMode.SINGLE_EXERCISE -> {
+                        selectedExercise?.let { exercise ->
+                            val history = histories[exercise] ?: emptyList()
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(240.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(surfaceColor)
+                                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                    .padding(16.dp)
+                            ) {
+                                if (history.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "No data yet",
+                                            style = TextStyle(
+                                                fontSize = 15.sp,
+                                                color = onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    NovaLineChart(
+                                        history = history,
+                                        modifier = Modifier.fillMaxSize(),
+                                        primaryColor = primaryColor,
+                                        backgroundColor = backgroundColor,
+                                        surfaceColor = surfaceColor,
+                                        textColor = onSurfaceVariant,
+                                        gridColor = outlineColor
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(20.dp))
+
+                            val sessionsWithLogs = historiesWithLogs[exercise] ?: emptyList()
+                            if (sessionsWithLogs.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Recent",
+                                        style = TextStyle(
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = onBackgroundColor
+                                        )
+                                    )
+                                    Text(
+                                        "Tap to edit",
+                                        style = TextStyle(
+                                            fontSize = 12.sp,
+                                            color = onSurfaceVariant
+                                        )
+                                    )
+                                }
+
+                                LazyColumn(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    itemsIndexed(sessionsWithLogs.reversed().take(10)) { index, sessionWithLog ->
+                                        var visible by remember { mutableStateOf(false) }
+                                        LaunchedEffect(Unit) {
+                                            delay(index * 50L)
+                                            visible = true
+                                        }
+
+                                        AnimatedVisibility(
+                                            visible = visible,
+                                            enter = slideInVertically(
+                                                initialOffsetY = { 20 },
+                                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                            ) + fadeIn()
+                                        ) {
+                                            SessionRow(
+                                                point = sessionWithLog.point,
+                                                surfaceColor = surfaceVariant,
+                                                primaryColor = primaryColor,
+                                                textColor = onSurfaceColor,
+                                                secondaryColor = onSurfaceVariant,
+                                                onClick = {
+                                                    editingSession = EditableSession(
+                                                        logId = sessionWithLog.logId,
+                                                        exerciseId = sessionWithLog.exerciseId,
+                                                        setIndex = sessionWithLog.setIndex,
+                                                        originalDate = sessionWithLog.point.date,
+                                                        originalWeight = sessionWithLog.point.weight,
+                                                        originalReps = sessionWithLog.point.reps
+                                                    )
+                                                    editDate = sessionWithLog.point.date
+                                                    editWeight = sessionWithLog.point.weight.toString()
+                                                    editReps = sessionWithLog.point.reps.toString()
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -484,7 +672,7 @@ fun NovaProgressScreen(
                 selected = selectedExercise,
                 onSelect = {
                     selectedExercise = it
-                    showAllExercises = false
+                    progressViewMode = ProgressViewMode.SINGLE_EXERCISE
                     showExercisePicker = false
                 },
                 onDismiss = { showExercisePicker = false },
@@ -494,9 +682,15 @@ fun NovaProgressScreen(
                 outlineColor = outlineColor,
                 surfaceVariant = surfaceVariant,
                 showAllOption = true,
-                isAllSelected = showAllExercises,
+                isAllSelected = progressViewMode == ProgressViewMode.ALL_EXERCISES,
                 onAllSelected = {
-                    showAllExercises = true
+                    progressViewMode = ProgressViewMode.ALL_EXERCISES
+                    showExercisePicker = false
+                },
+                showByDateOption = true,
+                isByDateSelected = progressViewMode == ProgressViewMode.BY_DATE,
+                onByDateSelected = {
+                    progressViewMode = ProgressViewMode.BY_DATE
                     showExercisePicker = false
                 }
             )
@@ -1072,7 +1266,10 @@ private fun ExercisePickerDialog(
     surfaceVariant: Color,
     showAllOption: Boolean = false,
     isAllSelected: Boolean = false,
-    onAllSelected: (() -> Unit)? = null
+    onAllSelected: (() -> Unit)? = null,
+    showByDateOption: Boolean = false,
+    isByDateSelected: Boolean = false,
+    onByDateSelected: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -1100,7 +1297,7 @@ private fun ExercisePickerDialog(
                 .padding(20.dp)
         ) {
             Text(
-                "Select Exercise",
+                "Select View",
                 style = TextStyle(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -1138,9 +1335,34 @@ private fun ExercisePickerDialog(
                         }
                     }
                 }
+
+                if (showByDateOption && onByDateSelected != null) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isByDateSelected) primaryColor.copy(alpha = 0.15f)
+                                    else surfaceVariant
+                                )
+                                .clickable { onByDateSelected() }
+                                .padding(14.dp)
+                        ) {
+                            Text(
+                                "🗓 See By Date",
+                                style = TextStyle(
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isByDateSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isByDateSelected) primaryColor else textColor
+                                )
+                            )
+                        }
+                    }
+                }
                 
                 items(exercises) { exercise ->
-                    val isSelected = exercise == selected && !isAllSelected
+                    val isSelected = exercise == selected && !isAllSelected && !isByDateSelected
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1178,6 +1400,118 @@ private fun parseIsoDateMillis(dateStr: String): Long? {
         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
     } catch (_: Exception) {
         null
+    }
+}
+
+private fun buildDailyWorkoutSummaries(
+    logs: List<WorkoutLogEntry>,
+    exercises: List<Exercise>
+): List<DailyWorkoutSummary> {
+    val exerciseById = exercises.associateBy { it.id }
+
+    return logs
+        .groupBy { it.date }
+        .map { (date, logsForDate) ->
+            val setsForDay = logsForDate.flatMap { it.sets }
+            val setsByExercise = setsForDay.groupBy { it.exerciseId }
+
+            val summaries = setsByExercise.map { (exerciseId, sets) ->
+                DailyExerciseSummary(
+                    exerciseName = exerciseById[exerciseId]?.name ?: readableExerciseId(exerciseId),
+                    setCount = sets.size,
+                    topWeight = sets.maxOfOrNull { it.weight } ?: 0f,
+                    bestReps = sets.maxOfOrNull { it.reps } ?: 0
+                )
+            }.sortedBy { it.exerciseName }
+
+            val focusCounts = mutableMapOf<String, Int>()
+            setsForDay.forEach { set ->
+                val exercise = exerciseById[set.exerciseId]
+                val group = inferMuscleGroup(
+                    exerciseId = set.exerciseId,
+                    exerciseName = exercise?.name ?: ""
+                )
+                focusCounts[group] = focusCounts.getOrDefault(group, 0) + 1
+            }
+
+            DailyWorkoutSummary(
+                date = date,
+                focusLabel = buildFocusLabel(focusCounts),
+                exercises = summaries
+            )
+        }
+        .sortedWith(compareByDescending<DailyWorkoutSummary> { parseIsoDateMillis(it.date) ?: Long.MIN_VALUE })
+}
+
+private fun buildFocusLabel(groupCounts: Map<String, Int>): String {
+    if (groupCounts.isEmpty()) return "Focus: Mixed"
+
+    val maxCount = groupCounts.maxOf { it.value }
+    val topGroups = groupCounts
+        .filterValues { it == maxCount }
+        .keys
+        .sorted()
+
+    return if (topGroups.size == 1) {
+        "Focus: ${topGroups.first()}"
+    } else {
+        "Focus: Mixed (${topGroups.joinToString("/")})"
+    }
+}
+
+private fun inferMuscleGroup(exerciseId: String, exerciseName: String): String {
+    val text = "$exerciseId $exerciseName".lowercase(Locale.getDefault())
+
+    val legsKeywords = listOf("squat", "leg", "lunge", "calf", "hip thrust", "glute", "bulgarian", "romanian", "stiff")
+    val chestKeywords = listOf("bench", "incline", "decline", "chest", "fly", "pec", "crossover", "push up", "dips")
+    val shoulderKeywords = listOf("shoulder", "overhead", "arnold", "lateral", "rear delt", "front raise", "upright row", "ohp")
+    val armKeywords = listOf("bicep", "tricep", "curl", "skull", "pushdown", "kickback", "extension")
+    val backKeywords = listOf("row", "pulldown", "pull up", "chin up", "lat", "deadlift", "shrug", "face pull", "t-bar")
+    val coreKeywords = listOf("crunch", "plank", "ab", "sit up", "twist", "leg raise")
+
+    return when {
+        text.containsAny(legsKeywords) -> "Legs"
+        text.containsAny(chestKeywords) -> "Chest"
+        text.containsAny(shoulderKeywords) -> "Shoulders"
+        text.containsAny(armKeywords) -> "Arms"
+        text.containsAny(backKeywords) -> "Back"
+        text.containsAny(coreKeywords) -> "Core"
+        else -> "Mixed"
+    }
+}
+
+private fun String.containsAny(keywords: List<String>): Boolean {
+    return keywords.any { keyword -> this.contains(keyword) }
+}
+
+private fun readableExerciseId(exerciseId: String): String {
+    return exerciseId
+        .split("_")
+        .joinToString(" ") { token ->
+            token.replaceFirstChar { ch ->
+                if (ch.isLowerCase()) ch.titlecase(Locale.getDefault()) else ch.toString()
+            }
+        }
+}
+
+private fun formatWorkoutDate(dateStr: String): String {
+    return try {
+        val parsedDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
+        if (parsedDate != null) {
+            SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(parsedDate)
+        } else {
+            dateStr
+        }
+    } catch (_: Exception) {
+        dateStr
+    }
+}
+
+private fun formatCompactWeight(weight: Float): String {
+    return if (weight % 1f == 0f) {
+        "${weight.toInt()} lbs"
+    } else {
+        "${String.format(Locale.getDefault(), "%.1f", weight)} lbs"
     }
 }
 
