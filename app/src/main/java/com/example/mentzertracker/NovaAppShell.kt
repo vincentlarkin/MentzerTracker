@@ -98,73 +98,74 @@ fun NovaAppShell(
             .fillMaxSize()
             .background(backgroundColor)
     ) {
-        // Main content
-        AnimatedContent(
-            targetState = currentTab,
-            transitionSpec = {
-                fadeIn(spring(stiffness = Spring.StiffnessMedium)) togetherWith 
-                fadeOut(spring(stiffness = Spring.StiffnessMedium))
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 80.dp), // Space for nav bar
-            label = "tabContent"
-        ) { tab ->
-            when (tab) {
-                NovaTab.LOG -> {
-                    NovaHomeScreen(
-                        customExercises = config.customExercises,
-                        recentLogs = logEntries.toList(),
-                        inputText = logDraftText,
-                        onInputTextChange = { logDraftText = it },
-                        onSave = { sets, notes, templateId ->
-                            val entry = WorkoutLogEntry(
-                                id = System.currentTimeMillis(),
-                                templateId = templateId,
-                                date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                    .format(Date()),
-                                sets = sets,
-                                notes = notes?.takeIf { it.isNotBlank() }
-                            )
-                            logEntries.add(entry)
-                            saveWorkoutLogs(context, logEntries)
-                        }
-                    )
-                }
-                NovaTab.PROGRESS -> {
-                    NovaProgressScreen(
-                        logs = logEntries,
-                        exercises = combinedExercises,
-                        onUpdateLogs = { newLogs ->
-                            logEntries.clear()
-                            logEntries.addAll(newLogs)
-                            saveWorkoutLogs(context, logEntries)
-                        }
-                    )
-                }
-                NovaTab.SETTINGS -> {
-                    NovaSettingsScreen(
-                        themeMode = themeMode,
-                        isPartialSessionsAllowed = isPartialSessionsAllowed,
-                        onThemeModeChange = onThemeModeChange,
-                        onAllowPartialSessionsChange = onAllowPartialSessionsChange,
-                        onImportBackup = onImportBackup,
-                        onResetData = onResetData,
-                        onEditWorkouts = onEditWorkouts
-                    )
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Main content
+            AnimatedContent(
+                targetState = currentTab,
+                transitionSpec = {
+                    fadeIn(spring(stiffness = Spring.StiffnessMedium)) togetherWith
+                    fadeOut(spring(stiffness = Spring.StiffnessMedium))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                label = "tabContent"
+            ) { tab ->
+                when (tab) {
+                    NovaTab.LOG -> {
+                        NovaHomeScreen(
+                            customExercises = config.customExercises,
+                            recentLogs = logEntries.toList(),
+                            inputText = logDraftText,
+                            onInputTextChange = { logDraftText = it },
+                            onSave = { sets, notes, templateId ->
+                                val entry = WorkoutLogEntry(
+                                    id = System.currentTimeMillis(),
+                                    templateId = templateId,
+                                    date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                                        .format(Date()),
+                                    sets = sets,
+                                    notes = notes?.takeIf { it.isNotBlank() }
+                                )
+                                logEntries.add(entry)
+                                saveWorkoutLogs(context, logEntries)
+                            }
+                        )
+                    }
+                    NovaTab.PROGRESS -> {
+                        NovaProgressScreen(
+                            logs = logEntries,
+                            exercises = combinedExercises,
+                            onUpdateLogs = { newLogs ->
+                                logEntries.clear()
+                                logEntries.addAll(newLogs)
+                                saveWorkoutLogs(context, logEntries)
+                            }
+                        )
+                    }
+                    NovaTab.SETTINGS -> {
+                        NovaSettingsScreen(
+                            themeMode = themeMode,
+                            isPartialSessionsAllowed = isPartialSessionsAllowed,
+                            onThemeModeChange = onThemeModeChange,
+                            onAllowPartialSessionsChange = onAllowPartialSessionsChange,
+                            onImportBackup = onImportBackup,
+                            onResetData = onResetData,
+                            onEditWorkouts = onEditWorkouts
+                        )
+                    }
                 }
             }
+
+            // Bottom navigation
+            NovaBottomNav(
+                currentTab = currentTab,
+                onTabSelected = { currentTab = it },
+                surfaceColor = surfaceColor,
+                primaryColor = primaryColor,
+                secondaryColor = onSurfaceVariant
+            )
         }
-        
-        // Bottom navigation
-        NovaBottomNav(
-            currentTab = currentTab,
-            onTabSelected = { currentTab = it },
-            modifier = Modifier.align(Alignment.BottomCenter),
-            surfaceColor = surfaceColor,
-            primaryColor = primaryColor,
-            secondaryColor = onSurfaceVariant
-        )
     }
 }
 

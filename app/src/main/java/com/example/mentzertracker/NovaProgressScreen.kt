@@ -1,11 +1,5 @@
 package com.vincentlarkin.mentzertracker
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +33,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -70,15 +65,17 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -111,6 +108,24 @@ private data class DailyWorkoutSummary(
     val exercises: List<DailyExerciseSummary>
 )
 
+private data class StatsSample(
+    val date: String,
+    val workoutId: Long,
+    val weight: Float,
+    val reps: Int
+)
+
+private data class WeeklyProgressStat(
+    val weekStartMillis: Long,
+    val weekLabel: String,
+    val workoutCount: Int,
+    val setCount: Int,
+    val averageWeight: Float,
+    val topWeight: Float,
+    val totalVolume: Float,
+    val topWeightDeltaFromPrevious: Float?
+)
+
 @Composable
 fun NovaProgressScreen(
     logs: List<WorkoutLogEntry>,
@@ -121,6 +136,7 @@ fun NovaProgressScreen(
     var selectedExercise by remember { mutableStateOf<Exercise?>(null) }
     var showExercisePicker by remember { mutableStateOf(false) }
     var progressViewMode by remember { mutableStateOf(ProgressViewMode.SINGLE_EXERCISE) }
+    var showDetailedStats by remember { mutableStateOf(true) }
     
     // Edit state
     var editingSession by remember { mutableStateOf<EditableSession?>(null) }
@@ -138,6 +154,8 @@ fun NovaProgressScreen(
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val errorColor = MaterialTheme.colorScheme.error
     
     // Build history map with log reference for editing
     data class SessionWithLog(
@@ -148,26 +166,36 @@ fun NovaProgressScreen(
     )
     
     val historiesWithLogs: Map<Exercise, List<SessionWithLog>> = remember(logs, exercises) {
-        exercises.associateWith { ex ->
-            logs.flatMapIndexed { index, log ->
-                log.sets.mapIndexedNotNull { setIdx, setEntry ->
-                    if (setEntry.exerciseId == ex.id) {
-                        SessionWithLog(
-                            point = SessionPoint(
-                                sessionIndex = index + 1,
-                                date = log.date,
-                                weight = setEntry.weight,
-                                reps = setEntry.reps,
-                                notes = log.notes
-                            ),
-                            logId = log.id,
-                            setIndex = setIdx,
-                            exerciseId = ex.id
-                        )
-                    } else null
+        val sessionsByExerciseId = mutableMapOf<String, MutableList<SessionWithLog>>()
+
+        logs.forEachIndexed { index, log ->
+            log.sets.forEachIndexed { setIdx, setEntry ->
+                val bucket = sessionsByExerciseId.getOrPut(setEntry.exerciseId) { mutableListOf() }
+                bucket.add(
+                    SessionWithLog(
+                        point = SessionPoint(
+                            sessionIndex = index + 1,
+                            date = log.date,
+                            weight = setEntry.weight,
+                            reps = setEntry.reps,
+                            notes = log.notes
+                        ),
+                        logId = log.id,
+                        setIndex = setIdx,
+                        exerciseId = setEntry.exerciseId
+                    )
+                )
+            }
+        }
+
+        buildMap {
+            exercises.forEach { exercise ->
+                val history = sessionsByExerciseId[exercise.id]
+                if (!history.isNullOrEmpty()) {
+                    put(exercise, history.toList())
                 }
             }
-        }.filterValues { it.isNotEmpty() }
+        }
     }
     
     // Also keep simple history map for compatibility
@@ -177,6 +205,20 @@ fun NovaProgressScreen(
 
     val dailyWorkoutSummaries = remember(logs, exercises) {
         buildDailyWorkoutSummaries(logs, exercises)
+    }
+
+    val overallWeeklyStats = remember(logs) {
+        val samples = logs.flatMap { log ->
+            log.sets.map { set ->
+                StatsSample(
+                    date = log.date,
+                    workoutId = log.id,
+                    weight = set.weight,
+                    reps = set.reps
+                )
+            }
+        }
+        buildWeeklyProgressStats(samples)
     }
     
     // Auto-select first exercise with history
@@ -307,64 +349,24 @@ fun NovaProgressScreen(
                         )
                     }
                 }
-                
+
+                Spacer(Modifier.height(12.dp))
+
+                DetailedStatsToggleRow(
+                    checked = showDetailedStats,
+                    onCheckedChange = { showDetailedStats = it },
+                    surfaceColor = surfaceColor,
+                    outlineColor = outlineColor,
+                    textColor = onSurfaceColor,
+                    secondaryColor = onSurfaceVariant,
+                    accentColor = primaryColor
+                )
+
                 Spacer(Modifier.height(20.dp))
                 
                 // Graph card and list mode
                 when (progressViewMode) {
                     ProgressViewMode.ALL_EXERCISES -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(280.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(surfaceColor)
-                                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                .padding(16.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    "Overall Progress",
-                                    style = TextStyle(
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = onSurfaceVariant
-                                    ),
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-
-                                MultiExerciseLineChart(
-                                    exerciseData = histories,
-                                    modifier = Modifier.fillMaxSize(),
-                                    primaryColor = primaryColor,
-                                    backgroundColor = backgroundColor,
-                                    textColor = onSurfaceVariant,
-                                    gridColor = outlineColor
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        ExerciseLegend(
-                            exercises = histories.keys.toList(),
-                            surfaceColor = surfaceVariant,
-                            textColor = onSurfaceColor,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(Modifier.height(16.dp))
-
-                        Text(
-                            "Latest by Exercise",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onBackgroundColor
-                            ),
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-
                         val latestByExercise = remember(historiesWithLogs) {
                             historiesWithLogs.mapNotNull { (exercise, sessions) ->
                                 val latestSession = sessions.maxWithOrNull(
@@ -377,10 +379,79 @@ fun NovaProgressScreen(
                         }
 
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            items(latestByExercise) { (exercise, latestPoint) ->
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(280.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(surfaceColor)
+                                        .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                        .padding(16.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            "Overall Progress",
+                                            style = TextStyle(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = onSurfaceVariant
+                                            ),
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+
+                                        MultiExerciseLineChart(
+                                            exerciseData = histories,
+                                            modifier = Modifier.fillMaxSize(),
+                                            primaryColor = primaryColor,
+                                            backgroundColor = backgroundColor,
+                                            textColor = onSurfaceVariant,
+                                            gridColor = outlineColor
+                                        )
+                                    }
+                                }
+                            }
+                            item {
+                                ExerciseLegend(
+                                    exercises = histories.keys.toList(),
+                                    surfaceColor = surfaceVariant,
+                                    textColor = onSurfaceColor,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (showDetailedStats) {
+                                item {
+                                    WeeklyPeriodStatsSection(
+                                        title = "Weekly Trend (All Exercises)",
+                                        subtitle = "Top-weight change week over week",
+                                        stats = overallWeeklyStats,
+                                        surfaceColor = surfaceColor,
+                                        surfaceVariant = surfaceVariant,
+                                        outlineColor = outlineColor,
+                                        textColor = onSurfaceColor,
+                                        secondaryColor = onSurfaceVariant,
+                                        positiveColor = tertiaryColor,
+                                        negativeColor = errorColor
+                                    )
+                                }
+                            }
+                            item {
+                                Text(
+                                    "Latest by Exercise",
+                                    style = TextStyle(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = onBackgroundColor
+                                    )
+                                )
+                            }
+                            items(
+                                items = latestByExercise,
+                                key = { (exercise, _) -> exercise.id }
+                            ) { (exercise, latestPoint) ->
                                 LatestExerciseRow(
                                     exerciseName = exercise.name,
                                     point = latestPoint,
@@ -390,67 +461,85 @@ fun NovaProgressScreen(
                                     secondaryColor = onSurfaceVariant
                                 )
                             }
+                            item { Spacer(Modifier.height(8.dp)) }
                         }
                     }
 
                     ProgressViewMode.BY_DATE -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(280.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(surfaceColor)
-                                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                .padding(16.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    "Overall Progress",
-                                    style = TextStyle(
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = onSurfaceVariant
-                                    ),
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-
-                                MultiExerciseLineChart(
-                                    exerciseData = histories,
-                                    modifier = Modifier.fillMaxSize(),
-                                    primaryColor = primaryColor,
-                                    backgroundColor = backgroundColor,
-                                    textColor = onSurfaceVariant,
-                                    gridColor = outlineColor
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        ExerciseLegend(
-                            exercises = histories.keys.toList(),
-                            surfaceColor = surfaceVariant,
-                            textColor = onSurfaceColor,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(Modifier.height(16.dp))
-
-                        Text(
-                            "Workouts by Date",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = onBackgroundColor
-                            ),
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            items(dailyWorkoutSummaries) { summary ->
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(280.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(surfaceColor)
+                                        .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                        .padding(16.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            "Overall Progress",
+                                            style = TextStyle(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = onSurfaceVariant
+                                            ),
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+
+                                        MultiExerciseLineChart(
+                                            exerciseData = histories,
+                                            modifier = Modifier.fillMaxSize(),
+                                            primaryColor = primaryColor,
+                                            backgroundColor = backgroundColor,
+                                            textColor = onSurfaceVariant,
+                                            gridColor = outlineColor
+                                        )
+                                    }
+                                }
+                            }
+                            item {
+                                ExerciseLegend(
+                                    exercises = histories.keys.toList(),
+                                    surfaceColor = surfaceVariant,
+                                    textColor = onSurfaceColor,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (showDetailedStats) {
+                                item {
+                                    WeeklyPeriodStatsSection(
+                                        title = "Weekly Period Stats",
+                                        subtitle = "Period-by-period training load",
+                                        stats = overallWeeklyStats,
+                                        surfaceColor = surfaceColor,
+                                        surfaceVariant = surfaceVariant,
+                                        outlineColor = outlineColor,
+                                        textColor = onSurfaceColor,
+                                        secondaryColor = onSurfaceVariant,
+                                        positiveColor = tertiaryColor,
+                                        negativeColor = errorColor
+                                    )
+                                }
+                            }
+                            item {
+                                Text(
+                                    "Workouts by Date",
+                                    style = TextStyle(
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = onBackgroundColor
+                                    )
+                                )
+                            }
+                            items(
+                                items = dailyWorkoutSummaries,
+                                key = { summary -> summary.date }
+                            ) { summary ->
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -547,117 +636,157 @@ fun NovaProgressScreen(
                                     }
                                 }
                             }
+                            item { Spacer(Modifier.height(8.dp)) }
                         }
                     }
 
                     ProgressViewMode.SINGLE_EXERCISE -> {
                         selectedExercise?.let { exercise ->
                             val history = histories[exercise] ?: emptyList()
+                            val sessionsWithLogs = historiesWithLogs[exercise] ?: emptyList()
+                            val recentSessions = remember(sessionsWithLogs) {
+                                sessionsWithLogs.sortedWith(
+                                    compareByDescending<SessionWithLog> {
+                                        parseIsoDateMillis(it.point.date) ?: Long.MIN_VALUE
+                                    }.thenByDescending { it.point.sessionIndex }
+                                )
+                            }
+                            val weeklyStats = remember(exercise, sessionsWithLogs) {
+                                buildWeeklyProgressStats(
+                                    sessionsWithLogs.map { session ->
+                                        StatsSample(
+                                            date = session.point.date,
+                                            workoutId = session.logId,
+                                            weight = session.point.weight,
+                                            reps = session.point.reps
+                                        )
+                                    }
+                                )
+                            }
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(240.dp)
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(surfaceColor)
-                                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                    .padding(16.dp)
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                if (history.isEmpty()) {
+                                item {
                                     Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(240.dp)
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(surfaceColor)
+                                            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                            .padding(16.dp)
+                                    ) {
+                                        if (history.isEmpty()) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    "No data yet",
+                                                    style = TextStyle(
+                                                        fontSize = 15.sp,
+                                                        color = onSurfaceVariant
+                                                    )
+                                                )
+                                            }
+                                        } else {
+                                            NovaLineChart(
+                                                history = history,
+                                                modifier = Modifier.fillMaxSize(),
+                                                primaryColor = primaryColor,
+                                                backgroundColor = backgroundColor,
+                                                surfaceColor = surfaceColor,
+                                                textColor = onSurfaceVariant,
+                                                gridColor = outlineColor
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (showDetailedStats) {
+                                    item {
+                                        SingleExerciseStatBoard(
+                                            exerciseName = exercise.name,
+                                            stats = weeklyStats,
+                                            totalSessions = sessionsWithLogs.size,
+                                            surfaceColor = surfaceColor,
+                                            surfaceVariant = surfaceVariant,
+                                            outlineColor = outlineColor,
+                                            textColor = onSurfaceColor,
+                                            secondaryColor = onSurfaceVariant,
+                                            positiveColor = tertiaryColor,
+                                            negativeColor = errorColor
+                                        )
+                                    }
+                                }
+
+                                item {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            "No data yet",
+                                            "Recent",
                                             style = TextStyle(
-                                                fontSize = 15.sp,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = onBackgroundColor
+                                            )
+                                        )
+                                        Text(
+                                            "Tap to edit",
+                                            style = TextStyle(
+                                                fontSize = 12.sp,
+                                                color = onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+
+                                if (recentSessions.isEmpty()) {
+                                    item {
+                                        Text(
+                                            "No recent sets yet.",
+                                            style = TextStyle(
+                                                fontSize = 13.sp,
                                                 color = onSurfaceVariant
                                             )
                                         )
                                     }
                                 } else {
-                                    NovaLineChart(
-                                        history = history,
-                                        modifier = Modifier.fillMaxSize(),
-                                        primaryColor = primaryColor,
-                                        backgroundColor = backgroundColor,
-                                        surfaceColor = surfaceColor,
-                                        textColor = onSurfaceVariant,
-                                        gridColor = outlineColor
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(20.dp))
-
-                            val sessionsWithLogs = historiesWithLogs[exercise] ?: emptyList()
-                            if (sessionsWithLogs.isNotEmpty()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        "Recent",
-                                        style = TextStyle(
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = onBackgroundColor
+                                    items(
+                                        items = recentSessions,
+                                        key = { session -> "${session.logId}_${session.setIndex}" }
+                                    ) { sessionWithLog ->
+                                        SessionRow(
+                                            point = sessionWithLog.point,
+                                            surfaceColor = surfaceVariant,
+                                            primaryColor = primaryColor,
+                                            textColor = onSurfaceColor,
+                                            secondaryColor = onSurfaceVariant,
+                                            onClick = {
+                                                editingSession = EditableSession(
+                                                    logId = sessionWithLog.logId,
+                                                    exerciseId = sessionWithLog.exerciseId,
+                                                    setIndex = sessionWithLog.setIndex,
+                                                    originalDate = sessionWithLog.point.date,
+                                                    originalWeight = sessionWithLog.point.weight,
+                                                    originalReps = sessionWithLog.point.reps
+                                                )
+                                                editDate = sessionWithLog.point.date
+                                                editWeight = sessionWithLog.point.weight.toString()
+                                                editReps = sessionWithLog.point.reps.toString()
+                                            }
                                         )
-                                    )
-                                    Text(
-                                        "Tap to edit",
-                                        style = TextStyle(
-                                            fontSize = 12.sp,
-                                            color = onSurfaceVariant
-                                        )
-                                    )
-                                }
-
-                                LazyColumn(
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    itemsIndexed(sessionsWithLogs.reversed().take(10)) { index, sessionWithLog ->
-                                        var visible by remember { mutableStateOf(false) }
-                                        LaunchedEffect(Unit) {
-                                            delay(index * 50L)
-                                            visible = true
-                                        }
-
-                                        AnimatedVisibility(
-                                            visible = visible,
-                                            enter = slideInVertically(
-                                                initialOffsetY = { 20 },
-                                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                                            ) + fadeIn()
-                                        ) {
-                                            SessionRow(
-                                                point = sessionWithLog.point,
-                                                surfaceColor = surfaceVariant,
-                                                primaryColor = primaryColor,
-                                                textColor = onSurfaceColor,
-                                                secondaryColor = onSurfaceVariant,
-                                                onClick = {
-                                                    editingSession = EditableSession(
-                                                        logId = sessionWithLog.logId,
-                                                        exerciseId = sessionWithLog.exerciseId,
-                                                        setIndex = sessionWithLog.setIndex,
-                                                        originalDate = sessionWithLog.point.date,
-                                                        originalWeight = sessionWithLog.point.weight,
-                                                        originalReps = sessionWithLog.point.reps
-                                                    )
-                                                    editDate = sessionWithLog.point.date
-                                                    editWeight = sessionWithLog.point.weight.toString()
-                                                    editReps = sessionWithLog.point.reps.toString()
-                                                }
-                                            )
-                                        }
                                     }
                                 }
+
+                                item { Spacer(Modifier.height(8.dp)) }
                             }
                         }
                     }
@@ -1030,6 +1159,383 @@ private fun LatestExerciseRow(
 }
 
 @Composable
+private fun DetailedStatsToggleRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    surfaceColor: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color,
+    accentColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Detailed stats",
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor
+                )
+            )
+            Text(
+                if (checked) "Week-over-week gain/loss is visible"
+                else "Turn on to view weekly period analytics",
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    color = secondaryColor
+                )
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+        if (checked) {
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(accentColor.copy(alpha = 0.12f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "ON",
+                    style = TextStyle(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyPeriodStatsSection(
+    title: String,
+    subtitle: String,
+    stats: List<WeeklyProgressStat>,
+    surfaceColor: Color,
+    surfaceVariant: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color,
+    positiveColor: Color,
+    negativeColor: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            title,
+            style = TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor
+            )
+        )
+        Text(
+            subtitle,
+            style = TextStyle(
+                fontSize = 12.sp,
+                color = secondaryColor
+            )
+        )
+
+        if (stats.isEmpty()) {
+            Text(
+                "Need more workout history to calculate period stats.",
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    color = secondaryColor
+                )
+            )
+        } else {
+            val latestDelta = stats.firstOrNull()?.topWeightDeltaFromPrevious
+            val deltaText = latestDelta?.let { "${formatSignedWeightDelta(it)} vs previous week" }
+                ?: "Baseline set. Add another week to compare."
+            val deltaColor = when {
+                latestDelta == null -> secondaryColor
+                latestDelta > 0f -> positiveColor
+                latestDelta < 0f -> negativeColor
+                else -> secondaryColor
+            }
+
+            Text(
+                deltaText,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = deltaColor
+                )
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                stats.take(4).forEach { stat ->
+                    WeeklyPeriodStatCard(
+                        stat = stat,
+                        surfaceVariant = surfaceVariant,
+                        outlineColor = outlineColor,
+                        textColor = textColor,
+                        secondaryColor = secondaryColor,
+                        positiveColor = positiveColor,
+                        negativeColor = negativeColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+            if (stats.size > 4) {
+                Text(
+                    "Showing latest 4 weeks",
+                    style = TextStyle(
+                        fontSize = 11.sp,
+                        color = secondaryColor
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyPeriodStatCard(
+    stat: WeeklyProgressStat,
+    surfaceVariant: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color,
+    positiveColor: Color,
+    negativeColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val delta = stat.topWeightDeltaFromPrevious
+    val deltaText = delta?.let { formatSignedWeightDelta(it) } ?: "Baseline"
+    val deltaColor = when {
+        delta == null -> secondaryColor
+        delta > 0f -> positiveColor
+        delta < 0f -> negativeColor
+        else -> secondaryColor
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(surfaceVariant)
+            .border(1.dp, outlineColor.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            stat.weekLabel,
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor
+            )
+        )
+        Text(
+            "Top ${formatCompactWeight(stat.topWeight)}",
+            style = TextStyle(
+                fontSize = 13.sp,
+                color = textColor
+            )
+        )
+        Text(
+            "Avg ${formatCompactWeight(stat.averageWeight)}",
+            style = TextStyle(
+                fontSize = 12.sp,
+                color = secondaryColor
+            )
+        )
+        Text(
+            "${stat.workoutCount} workouts | ${stat.setCount} sets",
+            style = TextStyle(
+                fontSize = 11.sp,
+                color = secondaryColor
+            )
+        )
+        Text(
+            "Volume ${formatCompactWeight(stat.totalVolume)}",
+            style = TextStyle(
+                fontSize = 11.sp,
+                color = secondaryColor
+            )
+        )
+        Text(
+            deltaText,
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = deltaColor
+            )
+        )
+    }
+}
+
+@Composable
+private fun SingleExerciseStatBoard(
+    exerciseName: String,
+    stats: List<WeeklyProgressStat>,
+    totalSessions: Int,
+    surfaceColor: Color,
+    surfaceVariant: Color,
+    outlineColor: Color,
+    textColor: Color,
+    secondaryColor: Color,
+    positiveColor: Color,
+    negativeColor: Color
+) {
+    val latestWeek = stats.firstOrNull()
+    val previousWeek = stats.getOrNull(1)
+    val fourWeekBase = stats.getOrNull(3)
+    val wowDelta = latestWeek?.topWeightDeltaFromPrevious
+    val fourWeekDelta = if (latestWeek != null && fourWeekBase != null) {
+        latestWeek.topWeight - fourWeekBase.topWeight
+    } else {
+        null
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(surfaceColor)
+            .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "$exerciseName stat board",
+            style = TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor
+            )
+        )
+        Text(
+            "Top-weight trends based on weekly periods",
+            style = TextStyle(
+                fontSize = 12.sp,
+                color = secondaryColor
+            )
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatBoardCell(
+                title = "This week top",
+                value = latestWeek?.let { formatCompactWeight(it.topWeight) } ?: "N/A",
+                valueColor = textColor,
+                surfaceVariant = surfaceVariant,
+                outlineColor = outlineColor,
+                secondaryColor = secondaryColor,
+                modifier = Modifier.weight(1f)
+            )
+            StatBoardCell(
+                title = "Last week top",
+                value = previousWeek?.let { formatCompactWeight(it.topWeight) } ?: "N/A",
+                valueColor = textColor,
+                surfaceVariant = surfaceVariant,
+                outlineColor = outlineColor,
+                secondaryColor = secondaryColor,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatBoardCell(
+                title = "WoW change",
+                value = wowDelta?.let { formatSignedWeightDelta(it) } ?: "N/A",
+                valueColor = when {
+                    wowDelta == null -> secondaryColor
+                    wowDelta > 0f -> positiveColor
+                    wowDelta < 0f -> negativeColor
+                    else -> secondaryColor
+                },
+                surfaceVariant = surfaceVariant,
+                outlineColor = outlineColor,
+                secondaryColor = secondaryColor,
+                modifier = Modifier.weight(1f)
+            )
+            StatBoardCell(
+                title = "4-week change",
+                value = fourWeekDelta?.let { formatSignedWeightDelta(it) } ?: "Need 4 weeks",
+                valueColor = when {
+                    fourWeekDelta == null -> secondaryColor
+                    fourWeekDelta > 0f -> positiveColor
+                    fourWeekDelta < 0f -> negativeColor
+                    else -> secondaryColor
+                },
+                surfaceVariant = surfaceVariant,
+                outlineColor = outlineColor,
+                secondaryColor = secondaryColor,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Text(
+            "Tracked sessions: $totalSessions",
+            style = TextStyle(
+                fontSize = 12.sp,
+                color = secondaryColor
+            )
+        )
+    }
+}
+
+@Composable
+private fun StatBoardCell(
+    title: String,
+    value: String,
+    valueColor: Color,
+    surfaceVariant: Color,
+    outlineColor: Color,
+    secondaryColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(surfaceVariant)
+            .border(1.dp, outlineColor.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            title,
+            style = TextStyle(
+                fontSize = 11.sp,
+                color = secondaryColor
+            )
+        )
+        Text(
+            value,
+            style = TextStyle(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = valueColor
+            )
+        )
+    }
+}
+
+@Composable
 private fun NovaLineChart(
     history: List<SessionPoint>,
     modifier: Modifier = Modifier,
@@ -1041,7 +1547,6 @@ private fun NovaLineChart(
 ) {
     val density = LocalDensity.current
     var highlightedIndex by remember(history) { mutableStateOf<Int?>(null) }
-    var pointPositions by remember(history) { mutableStateOf(emptyList<Offset>()) }
     var canvasSize by remember(history) { mutableStateOf(Size.Zero) }
     
     val orderedHistory = remember(history) {
@@ -1057,6 +1562,32 @@ private fun NovaLineChart(
     val rawMax = weights.maxOrNull() ?: 0f
     val yMax = paddedMaxWeight(rawMax)
     val ticks = (0..4).map { i -> yMax * i / 4f }
+    val pointPositions = remember(orderedHistory, canvasSize, yMax, density) {
+        if (canvasSize == Size.Zero) {
+            emptyList()
+        } else {
+            val leftPadding = with(density) { 8.dp.toPx() }
+            val rightPadding = with(density) { 8.dp.toPx() }
+            val topPadding = with(density) { 16.dp.toPx() }
+            val bottomPadding = with(density) { 8.dp.toPx() }
+
+            val usableWidth = (canvasSize.width - leftPadding - rightPadding).coerceAtLeast(0f)
+            val usableHeight = (canvasSize.height - topPadding - bottomPadding).coerceAtLeast(0f)
+            val stepX = if (orderedHistory.size <= 1 || usableWidth == 0f) 0f else usableWidth / (orderedHistory.size - 1)
+
+            fun yForWeight(weight: Float): Float {
+                val normalized = (weight / yMax).coerceIn(0f, 1f)
+                return topPadding + (1f - normalized) * usableHeight
+            }
+
+            orderedHistory.mapIndexed { index, point ->
+                Offset(
+                    x = leftPadding + stepX * index,
+                    y = yForWeight(point.weight)
+                )
+            }
+        }
+    }
     
     Row(modifier = modifier) {
         // Y-axis labels
@@ -1086,7 +1617,10 @@ private fun NovaLineChart(
             Canvas(
                 modifier = Modifier
                     .matchParentSize()
-                    .pointerInput(orderedHistory) {
+                    .onSizeChanged { size ->
+                        canvasSize = Size(size.width.toFloat(), size.height.toFloat())
+                    }
+                    .pointerInput(pointPositions) {
                         detectTapGestures { offset ->
                             val points = pointPositions
                             if (points.isEmpty()) {
@@ -1109,8 +1643,6 @@ private fun NovaLineChart(
                         }
                     }
             ) {
-                canvasSize = size
-                
                 val width = size.width
                 val height = size.height
                 
@@ -1119,22 +1651,14 @@ private fun NovaLineChart(
                 val topPadding = 16.dp.toPx()
                 val bottomPadding = 8.dp.toPx()
                 
-                val usableWidth = width - leftPadding - rightPadding
                 val usableHeight = height - topPadding - bottomPadding
-                
-                val stepX = if (orderedHistory.size == 1) 0f else usableWidth / (orderedHistory.size - 1)
-                
+
                 fun yForWeight(w: Float): Float {
                     val normalized = (w / yMax).coerceIn(0f, 1f)
                     return topPadding + (1f - normalized) * usableHeight
                 }
-                
-                val points = orderedHistory.mapIndexed { index, point ->
-                    val x = leftPadding + stepX * index
-                    val y = yForWeight(point.weight)
-                    Offset(x, y)
-                }
-                pointPositions = points
+
+                val points = pointPositions
                 
                 // Grid lines
                 ticks.forEach { tickValue ->
@@ -1403,6 +1927,62 @@ private fun parseIsoDateMillis(dateStr: String): Long? {
     }
 }
 
+private fun buildWeeklyProgressStats(samples: List<StatsSample>): List<WeeklyProgressStat> {
+    if (samples.isEmpty()) return emptyList()
+
+    val groupedByWeek = samples.mapNotNull { sample ->
+        val millis = parseIsoDateMillis(sample.date) ?: return@mapNotNull null
+        weekStartMillis(millis) to sample
+    }.groupBy({ it.first }, { it.second })
+
+    val ascending = groupedByWeek.map { (weekStart, weekSamples) ->
+        val weekEnd = weekStart + (6L * 24L * 60L * 60L * 1000L)
+        val topWeight = weekSamples.maxOfOrNull { it.weight } ?: 0f
+        val avgWeight = weekSamples.map { it.weight }.average().toFloat()
+        val totalVolume = weekSamples.sumOf { sample -> (sample.weight * sample.reps).toDouble() }.toFloat()
+
+        WeeklyProgressStat(
+            weekStartMillis = weekStart,
+            weekLabel = formatWeekLabel(weekStart, weekEnd),
+            workoutCount = weekSamples.map { it.workoutId }.distinct().size,
+            setCount = weekSamples.size,
+            averageWeight = avgWeight,
+            topWeight = topWeight,
+            totalVolume = totalVolume,
+            topWeightDeltaFromPrevious = null
+        )
+    }.sortedBy { it.weekStartMillis }
+
+    val withDelta = ascending.mapIndexed { index, current ->
+        val previous = ascending.getOrNull(index - 1)
+        current.copy(
+            topWeightDeltaFromPrevious = previous?.let { current.topWeight - it.topWeight }
+        )
+    }
+
+    return withDelta.sortedByDescending { it.weekStartMillis }
+}
+
+private fun weekStartMillis(epochMillis: Long): Long {
+    val calendar = Calendar.getInstance().apply {
+        timeInMillis = epochMillis
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    val firstDayOfWeek = calendar.firstDayOfWeek
+    while (calendar.get(Calendar.DAY_OF_WEEK) != firstDayOfWeek) {
+        calendar.add(Calendar.DAY_OF_MONTH, -1)
+    }
+    return calendar.timeInMillis
+}
+
+private fun formatWeekLabel(weekStartMillis: Long, weekEndMillis: Long): String {
+    val formatter = SimpleDateFormat("MMM d", Locale.getDefault())
+    return "${formatter.format(Date(weekStartMillis))} - ${formatter.format(Date(weekEndMillis))}"
+}
+
 private fun buildDailyWorkoutSummaries(
     logs: List<WorkoutLogEntry>,
     exercises: List<Exercise>
@@ -1512,6 +2092,25 @@ private fun formatCompactWeight(weight: Float): String {
         "${weight.toInt()} lbs"
     } else {
         "${String.format(Locale.getDefault(), "%.1f", weight)} lbs"
+    }
+}
+
+private fun formatSignedWeightDelta(delta: Float): String {
+    val absolute = abs(delta)
+    val formattedValue = if (absolute % 1f == 0f) {
+        absolute.toInt().toString()
+    } else {
+        String.format(Locale.getDefault(), "%.1f", absolute)
+    }
+    val sign = when {
+        delta > 0f -> "+"
+        delta < 0f -> "-"
+        else -> "0"
+    }
+    return if (sign == "0") {
+        "0 lbs"
+    } else {
+        "$sign$formattedValue lbs"
     }
 }
 
