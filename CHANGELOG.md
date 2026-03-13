@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.5 - 2026-03-13
+
+- Added a much larger built-in exercise catalog, with expanded ab/core coverage and more machine options.
+- Added first-class cardio logging for treadmill, elliptical, stair, and bike-style entries.
+- Added flexible cardio parsing for time, distance, calories, and steps.
+- Improved core parsing for reps-only movements and timed holds like planks.
+- Updated progress history so cardio entries show cleanly in by-date summaries without polluting strength charts.
+- Cleaned up deprecated Android Gradle configuration flags and bumped app version:
+  - `versionCode`: 10
+  - `versionName`: `2.5`
+
 ## 2.3 - 2026-02-23
 
 - Added a new Progress dropdown mode, `See By Date`, to group workouts by date.

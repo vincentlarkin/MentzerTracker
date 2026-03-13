@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -63,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
+import com.vincentlarkin.mentzertracker.formatExerciseEntryCompact
 import kotlinx.coroutines.delay
 
 // Nova color palette - deeper, more refined
@@ -76,6 +76,7 @@ private val NovaSuccess = Color(0xFF30D158)
 private val NovaWarning = Color(0xFFFFD60A)
 private val NovaBorder = Color(0xFF2C2C3A)
 
+@Suppress("unused")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NovaNotesScreen(
@@ -86,22 +87,22 @@ fun NovaNotesScreen(
     var inputText by remember { mutableStateOf("") }
     var showSuccess by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    
+
     val parseResult by remember(inputText) {
         derivedStateOf {
             if (inputText.isBlank()) null
             else WorkoutParser.parse(inputText, customExercises)
         }
     }
-    
+
     val hasValidSets = parseResult?.parsedExercises?.isNotEmpty() == true
-    
+
     // Auto-focus on mount
     LaunchedEffect(Unit) {
         delay(300)
         focusRequester.requestFocus()
     }
-    
+
     // Success animation reset
     LaunchedEffect(showSuccess) {
         if (showSuccess) {
@@ -109,7 +110,7 @@ fun NovaNotesScreen(
             showSuccess = false
         }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -129,7 +130,7 @@ fun NovaNotesScreen(
                     )
                 )
         )
-        
+
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -170,7 +171,7 @@ fun NovaNotesScreen(
                             targetValue = if (hasValidSets) 1f else 0.4f,
                             label = "saveAlpha"
                         )
-                        
+
                         IconButton(
                             onClick = {
                                 if (hasValidSets && parseResult != null) {
@@ -225,7 +226,7 @@ fun NovaNotesScreen(
                 ) {
                     if (inputText.isEmpty()) {
                         Text(
-                            text = "bench 225 - 8, 8, 6\nsquat 315 x 5\ndl 405 3",
+                            text = "bench 225 - 8, 8, 6\ntreadmill 20 min 250 cal\nelliptical 30 min 4500 steps",
                             style = TextStyle(
                                 fontSize = 20.sp,
                                 lineHeight = 32.sp,
@@ -234,7 +235,7 @@ fun NovaNotesScreen(
                             )
                         )
                     }
-                    
+
                     BasicTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
@@ -250,7 +251,7 @@ fun NovaNotesScreen(
                         cursorBrush = SolidColor(NovaAccent)
                     )
                 }
-                
+
                 // Parsed results preview
                 AnimatedVisibility(
                     visible = parseResult != null,
@@ -272,7 +273,7 @@ fun NovaNotesScreen(
                 }
             }
         }
-        
+
         // Success overlay
         AnimatedVisibility(
             visible = showSuccess,
@@ -373,7 +374,7 @@ private fun ParsedResultsCard(
                     )
                 }
             }
-            
+
             // Parsed exercises
             LazyColumn(
                 modifier = Modifier.height(
@@ -391,7 +392,7 @@ private fun ParsedResultsCard(
                     )
                 }
             }
-            
+
             // Unrecognized lines warning
             if (result.unrecognizedLines.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -404,7 +405,7 @@ private fun ParsedResultsCard(
                         .padding(12.dp)
                 ) {
                     Text(
-                        "⚠",
+                        "âš ",
                         fontSize = 14.sp
                     )
                     Spacer(Modifier.width(8.dp))
@@ -428,12 +429,12 @@ private fun ParsedExerciseRow(
     index: Int
 ) {
     var visible by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(parsed) {
         delay(index * 50L)
         visible = true
     }
-    
+
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(
@@ -460,8 +461,11 @@ private fun ParsedExerciseRow(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    parsed.sets.joinToString(" · ") { 
-                        "${it.weight.toInt()}×${it.reps}"
+                    parsed.sets.joinToString(" | ") {
+                        formatExerciseEntryCompact(
+                            entry = it.toSetEntry(parsed.exercise.id),
+                            exercise = parsed.exercise
+                        )
                     },
                     style = TextStyle(
                         fontSize = 13.sp,
@@ -469,7 +473,7 @@ private fun ParsedExerciseRow(
                     )
                 )
             }
-            
+
             // Set count badge
             Box(
                 modifier = Modifier
@@ -489,6 +493,3 @@ private fun ParsedExerciseRow(
         }
     }
 }
-
-
-

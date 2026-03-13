@@ -97,9 +97,11 @@ private enum class ProgressViewMode {
 
 private data class DailyExerciseSummary(
     val exerciseName: String,
-    val setCount: Int,
-    val topWeight: Float,
-    val bestReps: Int
+    val setCount: Int = 0,
+    val topWeight: Float = 0f,
+    val bestReps: Int = 0,
+    val countLabel: String = "",
+    val summary: String = ""
 )
 
 private data class DailyWorkoutSummary(
@@ -137,14 +139,14 @@ fun NovaProgressScreen(
     var showExercisePicker by remember { mutableStateOf(false) }
     var progressViewMode by remember { mutableStateOf(ProgressViewMode.SINGLE_EXERCISE) }
     var showDetailedStats by remember { mutableStateOf(true) }
-    
+
     // Edit state
     var editingSession by remember { mutableStateOf<EditableSession?>(null) }
     var editDate by remember { mutableStateOf("") }
     var editWeight by remember { mutableStateOf("") }
     var editReps by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
-    
+
     // Get theme colors
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -156,7 +158,7 @@ fun NovaProgressScreen(
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
     val errorColor = MaterialTheme.colorScheme.error
-    
+
     // Build history map with log reference for editing
     data class SessionWithLog(
         val point: SessionPoint,
@@ -164,12 +166,21 @@ fun NovaProgressScreen(
         val setIndex: Int,
         val exerciseId: String
     )
-    
+
+    val exerciseById = remember(exercises) {
+        exercises.associateBy { it.id }
+    }
+
     val historiesWithLogs: Map<Exercise, List<SessionWithLog>> = remember(logs, exercises) {
         val sessionsByExerciseId = mutableMapOf<String, MutableList<SessionWithLog>>()
+        val exercisesById = exercises.associateBy { it.id }
 
         logs.forEachIndexed { index, log ->
             log.sets.forEachIndexed { setIdx, setEntry ->
+                val exercise = exercisesById[setEntry.exerciseId]
+                if (setEntry.isCardioEntry(exercise) || !setEntry.hasStrengthMetrics()) {
+                    return@forEachIndexed
+                }
                 val bucket = sessionsByExerciseId.getOrPut(setEntry.exerciseId) { mutableListOf() }
                 bucket.add(
                     SessionWithLog(
@@ -197,7 +208,7 @@ fun NovaProgressScreen(
             }
         }
     }
-    
+
     // Also keep simple history map for compatibility
     val histories: Map<Exercise, List<SessionPoint>> = remember(historiesWithLogs) {
         historiesWithLogs.mapValues { (_, sessions) -> sessions.map { it.point } }
@@ -207,27 +218,35 @@ fun NovaProgressScreen(
         buildDailyWorkoutSummaries(logs, exercises)
     }
 
-    val overallWeeklyStats = remember(logs) {
+    val overallWeeklyStats = remember(logs, exercises) {
         val samples = logs.flatMap { log ->
-            log.sets.map { set ->
-                StatsSample(
-                    date = log.date,
-                    workoutId = log.id,
-                    weight = set.weight,
-                    reps = set.reps
-                )
+            log.sets.mapNotNull { set ->
+                val exercise = exerciseById[set.exerciseId]
+                if (set.isCardioEntry(exercise) || !set.hasStrengthMetrics()) {
+                    null
+                } else {
+                    StatsSample(
+                        date = log.date,
+                        workoutId = log.id,
+                        weight = set.weight,
+                        reps = set.reps
+                    )
+                }
             }
         }
         buildWeeklyProgressStats(samples)
     }
-    
+
     // Auto-select first exercise with history
-    LaunchedEffect(histories) {
+    LaunchedEffect(histories, dailyWorkoutSummaries) {
         if (selectedExercise == null || !histories.containsKey(selectedExercise)) {
             selectedExercise = histories.keys.firstOrNull()
         }
+        if (histories.isEmpty() && dailyWorkoutSummaries.isNotEmpty()) {
+            progressViewMode = ProgressViewMode.BY_DATE
+        }
     }
-    
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -247,8 +266,8 @@ fun NovaProgressScreen(
                     )
                 )
         )
-        
-        if (histories.isEmpty()) {
+
+        if (logs.isEmpty()) {
             // Empty state
             Box(
                 modifier = Modifier
@@ -310,7 +329,7 @@ fun NovaProgressScreen(
                     ),
                     modifier = Modifier.padding(top = 16.dp, bottom = 20.dp)
                 )
-                
+
                 // Exercise picker
                 Box(
                     modifier = Modifier
@@ -328,8 +347,8 @@ fun NovaProgressScreen(
                     ) {
                         Text(
                             when (progressViewMode) {
-                                ProgressViewMode.ALL_EXERCISES -> "📊 All Exercises"
-                                ProgressViewMode.BY_DATE -> "🗓 See By Date"
+                                ProgressViewMode.ALL_EXERCISES -> "ðŸ“Š All Exercises"
+                                ProgressViewMode.BY_DATE -> "ðŸ—“ See By Date"
                                 ProgressViewMode.SINGLE_EXERCISE -> selectedExercise?.name ?: "Select exercise"
                             },
                             style = TextStyle(
@@ -363,7 +382,7 @@ fun NovaProgressScreen(
                 )
 
                 Spacer(Modifier.height(20.dp))
-                
+
                 // Graph card and list mode
                 when (progressViewMode) {
                     ProgressViewMode.ALL_EXERCISES -> {
@@ -406,7 +425,6 @@ fun NovaProgressScreen(
                                         MultiExerciseLineChart(
                                             exerciseData = histories,
                                             modifier = Modifier.fillMaxSize(),
-                                            primaryColor = primaryColor,
                                             backgroundColor = backgroundColor,
                                             textColor = onSurfaceVariant,
                                             gridColor = outlineColor
@@ -494,7 +512,6 @@ fun NovaProgressScreen(
                                         MultiExerciseLineChart(
                                             exerciseData = histories,
                                             modifier = Modifier.fillMaxSize(),
-                                            primaryColor = primaryColor,
                                             backgroundColor = backgroundColor,
                                             textColor = onSurfaceVariant,
                                             gridColor = outlineColor
@@ -617,7 +634,7 @@ fun NovaProgressScreen(
                                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                                 ) {
                                                     Text(
-                                                        text = "${dayExercise.setCount} set" + if (dayExercise.setCount == 1) "" else "s",
+                                                        text = dayExercise.countLabel,
                                                         style = TextStyle(
                                                             fontSize = 11.sp,
                                                             color = primaryColor
@@ -625,7 +642,7 @@ fun NovaProgressScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "${formatCompactWeight(dayExercise.topWeight)} × ${dayExercise.bestReps}",
+                                                    text = dayExercise.summary,
                                                     style = TextStyle(
                                                         fontSize = 12.sp,
                                                         color = onSurfaceVariant
@@ -793,7 +810,7 @@ fun NovaProgressScreen(
                 }
             }
         }
-        
+
         // Exercise picker dialog
         if (showExercisePicker) {
             ExercisePickerDialog(
@@ -824,14 +841,13 @@ fun NovaProgressScreen(
                 }
             )
         }
-        
+
         // Edit session dialog
         editingSession?.let { session ->
             EditSessionDialog(
                 date = editDate,
                 weight = editWeight,
                 reps = editReps,
-                onDateChange = { editDate = it },
                 onWeightChange = { editWeight = it },
                 onRepsChange = { editReps = it },
                 onShowDatePicker = { showDatePicker = true },
@@ -839,7 +855,7 @@ fun NovaProgressScreen(
                 onSave = {
                     val newWeight = editWeight.toFloatOrNull()
                     val newReps = editReps.toIntOrNull()
-                    
+
                     if (newWeight != null && newReps != null) {
                         val updatedLogs = logs.map { log ->
                             if (log.id == session.logId) {
@@ -856,13 +872,11 @@ fun NovaProgressScreen(
                     editingSession = null
                 },
                 surfaceColor = surfaceColor,
-                primaryColor = primaryColor,
                 textColor = onSurfaceColor,
-                secondaryColor = onSurfaceVariant,
-                outlineColor = outlineColor
+                secondaryColor = onSurfaceVariant
             )
         }
-        
+
         // Date picker dialog
         if (showDatePicker) {
             DatePickerDialogWrapper(
@@ -884,12 +898,12 @@ private fun DatePickerDialogWrapper(
     val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val initialMillis = try {
         formatter.parse(initialDate)?.time
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
-    
+
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-    
+
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -920,17 +934,14 @@ private fun EditSessionDialog(
     date: String,
     weight: String,
     reps: String,
-    onDateChange: (String) -> Unit,
     onWeightChange: (String) -> Unit,
     onRepsChange: (String) -> Unit,
     onShowDatePicker: () -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
     surfaceColor: Color,
-    primaryColor: Color,
     textColor: Color,
-    secondaryColor: Color,
-    outlineColor: Color
+    secondaryColor: Color
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -966,7 +977,7 @@ private fun EditSessionDialog(
                         )
                     }
                 )
-                
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -981,7 +992,7 @@ private fun EditSessionDialog(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
-                    
+
                     OutlinedTextField(
                         value = reps,
                         onValueChange = { value ->
@@ -1023,14 +1034,14 @@ private fun SessionRow(
 ) {
     val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
     val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    
+
     val formattedDate = try {
         val date = inputFormatter.parse(point.date)
         date?.let { dateFormatter.format(it) } ?: point.date
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         point.date
     }
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1054,7 +1065,7 @@ private fun SessionRow(
                 )
             )
         }
-        
+
         Text(
             "${point.weight.toInt()}lbs",
             style = TextStyle(
@@ -1063,9 +1074,9 @@ private fun SessionRow(
                 color = primaryColor
             )
         )
-        
+
         Spacer(Modifier.width(12.dp))
-        
+
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
@@ -1080,7 +1091,7 @@ private fun SessionRow(
                 )
             )
         }
-        
+
         if (onClick != null) {
             Spacer(Modifier.width(8.dp))
             Icon(
@@ -1107,7 +1118,7 @@ private fun LatestExerciseRow(
     val formattedDate = try {
         val date = inputFormatter.parse(point.date)
         date?.let { dateFormatter.format(it) } ?: point.date
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         point.date
     }
 
@@ -1548,7 +1559,7 @@ private fun NovaLineChart(
     val density = LocalDensity.current
     var highlightedIndex by remember(history) { mutableStateOf<Int?>(null) }
     var canvasSize by remember(history) { mutableStateOf(Size.Zero) }
-    
+
     val orderedHistory = remember(history) {
         history.sortedWith(
             compareBy(
@@ -1557,7 +1568,7 @@ private fun NovaLineChart(
             )
         )
     }
-    
+
     val weights = orderedHistory.map { it.weight }
     val rawMax = weights.maxOrNull() ?: 0f
     val yMax = paddedMaxWeight(rawMax)
@@ -1588,7 +1599,7 @@ private fun NovaLineChart(
             }
         }
     }
-    
+
     Row(modifier = modifier) {
         // Y-axis labels
         Column(
@@ -1608,7 +1619,7 @@ private fun NovaLineChart(
                 )
             }
         }
-        
+
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1645,12 +1656,12 @@ private fun NovaLineChart(
             ) {
                 val width = size.width
                 val height = size.height
-                
+
                 val leftPadding = 8.dp.toPx()
                 val rightPadding = 8.dp.toPx()
                 val topPadding = 16.dp.toPx()
                 val bottomPadding = 8.dp.toPx()
-                
+
                 val usableHeight = height - topPadding - bottomPadding
 
                 fun yForWeight(w: Float): Float {
@@ -1659,7 +1670,7 @@ private fun NovaLineChart(
                 }
 
                 val points = pointPositions
-                
+
                 // Grid lines
                 ticks.forEach { tickValue ->
                     val y = yForWeight(tickValue)
@@ -1670,7 +1681,7 @@ private fun NovaLineChart(
                         strokeWidth = 1.dp.toPx()
                     )
                 }
-                
+
                 // Line + fill
                 if (points.size >= 2) {
                     val linePath = Path().apply {
@@ -1679,7 +1690,7 @@ private fun NovaLineChart(
                             lineTo(points[i].x, points[i].y)
                         }
                     }
-                    
+
                     val axisY = yForWeight(0f)
                     val fillPath = Path().apply {
                         moveTo(points.first().x, axisY)
@@ -1689,12 +1700,12 @@ private fun NovaLineChart(
                         lineTo(points.last().x, axisY)
                         close()
                     }
-                    
+
                     drawPath(
                         path = fillPath,
                         color = primaryColor.copy(alpha = 0.15f)
                     )
-                    
+
                     drawPath(
                         path = linePath,
                         color = primaryColor,
@@ -1705,7 +1716,7 @@ private fun NovaLineChart(
                         )
                     )
                 }
-                
+
                 // Points
                 val selectedIndex = highlightedIndex
                 points.forEachIndexed { index, pt ->
@@ -1723,7 +1734,7 @@ private fun NovaLineChart(
                     )
                 }
             }
-            
+
             // Tooltip
             val selectedIndex = highlightedIndex
             if (selectedIndex != null) {
@@ -1735,13 +1746,13 @@ private fun NovaLineChart(
                     val tooltipWidthPx = with(density) { tooltipWidth.toPx() }
                     val tooltipHeightPx = with(density) { tooltipHeight.toPx() }
                     val verticalGapPx = with(density) { 12.dp.toPx() }
-                    
+
                     val xPx = (point.x - tooltipWidthPx / 2f).coerceIn(
                         0f,
                         canvasSize.width - tooltipWidthPx
                     )
                     val yPx = (point.y - tooltipHeightPx - verticalGapPx).coerceAtLeast(0f)
-                    
+
                     Box(
                         modifier = Modifier
                             .offset {
@@ -1829,7 +1840,7 @@ private fun ExercisePickerDialog(
                 ),
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-            
+
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.height(300.dp)
@@ -1849,7 +1860,7 @@ private fun ExercisePickerDialog(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                "📊 All Exercises",
+                                "ðŸ“Š All Exercises",
                                 style = TextStyle(
                                     fontSize = 15.sp,
                                     fontWeight = if (isAllSelected) FontWeight.SemiBold else FontWeight.Normal,
@@ -1874,7 +1885,7 @@ private fun ExercisePickerDialog(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                "🗓 See By Date",
+                                "ðŸ—“ See By Date",
                                 style = TextStyle(
                                     fontSize = 15.sp,
                                     fontWeight = if (isByDateSelected) FontWeight.SemiBold else FontWeight.Normal,
@@ -1884,7 +1895,7 @@ private fun ExercisePickerDialog(
                         }
                     }
                 }
-                
+
                 items(exercises) { exercise ->
                     val isSelected = exercise == selected && !isAllSelected && !isByDateSelected
                     Box(
@@ -1996,11 +2007,23 @@ private fun buildDailyWorkoutSummaries(
             val setsByExercise = setsForDay.groupBy { it.exerciseId }
 
             val summaries = setsByExercise.map { (exerciseId, sets) ->
+                val exercise = exerciseById[exerciseId]
+                val hasCardio = sets.any { it.isCardioEntry(exercise) }
                 DailyExerciseSummary(
-                    exerciseName = exerciseById[exerciseId]?.name ?: readableExerciseId(exerciseId),
+                    exerciseName = exercise?.name ?: readableExerciseId(exerciseId),
                     setCount = sets.size,
                     topWeight = sets.maxOfOrNull { it.weight } ?: 0f,
-                    bestReps = sets.maxOfOrNull { it.reps } ?: 0
+                    bestReps = sets.maxOfOrNull { it.reps } ?: 0,
+                    countLabel = if (hasCardio) {
+                        if (sets.size == 1) "1 entry" else "${sets.size} entries"
+                    } else {
+                        "${sets.size} set" + if (sets.size == 1) "" else "s"
+                    },
+                    summary = if (hasCardio) {
+                        sets.joinToString(" Â· ") { formatExerciseEntrySummary(it, exercise) }
+                    } else {
+                        "Top ${formatCompactWeight(sets.maxOfOrNull { it.weight } ?: 0f)} Â· Best ${sets.maxOfOrNull { it.reps } ?: 0} reps"
+                    }
                 )
             }.sortedBy { it.exerciseName }
 
@@ -2048,6 +2071,7 @@ private fun inferMuscleGroup(exerciseId: String, exerciseName: String): String {
     val armKeywords = listOf("bicep", "tricep", "curl", "skull", "pushdown", "kickback", "extension")
     val backKeywords = listOf("row", "pulldown", "pull up", "chin up", "lat", "deadlift", "shrug", "face pull", "t-bar")
     val coreKeywords = listOf("crunch", "plank", "ab", "sit up", "twist", "leg raise")
+    val cardioKeywords = listOf("treadmill", "elliptical", "bike", "stair", "stepmill", "cardio")
 
     return when {
         text.containsAny(legsKeywords) -> "Legs"
@@ -2056,6 +2080,7 @@ private fun inferMuscleGroup(exerciseId: String, exerciseName: String): String {
         text.containsAny(armKeywords) -> "Arms"
         text.containsAny(backKeywords) -> "Back"
         text.containsAny(coreKeywords) -> "Core"
+        text.containsAny(cardioKeywords) -> "Cardio"
         else -> "Mixed"
     }
 }
@@ -2168,7 +2193,6 @@ private fun ExerciseLegend(
 private fun MultiExerciseLineChart(
     exerciseData: Map<Exercise, List<SessionPoint>>,
     modifier: Modifier = Modifier,
-    primaryColor: Color,
     backgroundColor: Color,
     textColor: Color,
     gridColor: Color
@@ -2194,8 +2218,6 @@ private fun MultiExerciseLineChart(
     val rawMax = allWeights.maxOrNull() ?: 0f
     val yMax = paddedMaxWeight(rawMax)
     val ticks = (0..4).map { i -> yMax * i / 4f }
-
-    val density = LocalDensity.current
 
     Row(modifier = modifier) {
         Column(

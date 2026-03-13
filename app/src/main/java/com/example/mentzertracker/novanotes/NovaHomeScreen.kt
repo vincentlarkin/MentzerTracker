@@ -1,6 +1,5 @@
 package com.vincentlarkin.mentzertracker.novanotes
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -10,10 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,9 +81,9 @@ import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
 import com.vincentlarkin.mentzertracker.NotificationHelper
 import com.vincentlarkin.mentzertracker.NotificationSettingsDialog
-
 import com.vincentlarkin.mentzertracker.WorkoutLogEntry
 import com.vincentlarkin.mentzertracker.allExercises
+import com.vincentlarkin.mentzertracker.isCardio
 import com.vincentlarkin.mentzertracker.loadWorkoutInterval
 import com.vincentlarkin.mentzertracker.saveWorkoutInterval
 import kotlinx.coroutines.delay
@@ -116,20 +112,20 @@ fun NovaHomeScreen(
     var showExamplesPopup by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    
+
     // Load workout interval preference (separate from notifications)
     var workoutIntervalDays by remember { mutableStateOf(loadWorkoutInterval(context)) }
-    
+
     // Load notification state for bell icon
     val notificationsEnabled = remember { NotificationHelper.loadPreferences(context).enabled }
-    
+
     // Callback to update interval
     val onIntervalChange: (Int) -> Unit = { newInterval ->
         workoutIntervalDays = newInterval
         saveWorkoutInterval(context, newInterval)
     }
     val scrollState = rememberScrollState()
-    
+
     // Get theme colors
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
@@ -139,7 +135,7 @@ fun NovaHomeScreen(
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val outlineColor = MaterialTheme.colorScheme.outline
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-    
+
     // Track the most recent workout
     val lastWorkout = remember(recentLogs) {
         recentLogs.maxByOrNull { it.id } // Most recent by timestamp
@@ -147,18 +143,18 @@ fun NovaHomeScreen(
 
     val todayTemplateId = "TODAY"
 
-    
+
     val parseResult by remember(inputText) {
         derivedStateOf {
             if (inputText.isBlank()) null
             else WorkoutParser.parse(inputText, customExercises)
         }
     }
-    
+
     val hasUnknownLines = parseResult?.unrecognizedLines?.isNotEmpty() == true
     val hasValidSets = parseResult?.parsedExercises?.isNotEmpty() == true && !hasUnknownLines
 
-    
+
     // Success animation reset
     LaunchedEffect(showSuccess) {
         if (showSuccess) {
@@ -166,16 +162,16 @@ fun NovaHomeScreen(
             showSuccess = false
         }
     }
-    
+
     val exampleHints = remember(customExercises) {
         generateExampleHints(customExercises)
     }
-    
+
     // Dynamic suggestions based on what user is typing
     val typingSuggestions = remember(inputText, allAvailableExercises) {
         generateTypingSuggestions(inputText, allAvailableExercises)
     }
-    
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -195,7 +191,7 @@ fun NovaHomeScreen(
                     )
                 )
         )
-        
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -230,7 +226,7 @@ fun NovaHomeScreen(
                         )
                     )
                 }
-                
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -249,7 +245,7 @@ fun NovaHomeScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     }
-                    
+
                     // Help button
                     IconButton(
                         onClick = { showExamplesPopup = true },
@@ -265,7 +261,7 @@ fun NovaHomeScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     }
-                    
+
                     // Save button
                     val saveScale by animateFloatAsState(
                         targetValue = if (hasValidSets) 1f else 0.95f,
@@ -276,7 +272,7 @@ fun NovaHomeScreen(
                         targetValue = if (hasValidSets) 1f else 0.4f,
                         label = "saveAlpha"
                     )
-                    
+
                     IconButton(
                         onClick = {
                             if (hasValidSets && parseResult != null) {
@@ -303,9 +299,9 @@ fun NovaHomeScreen(
                     }
                 }
             }
-            
+
             Spacer(Modifier.height(16.dp))
-            
+
             // Schedule Card - Simple: last workout and next due
             ScheduleCard(
                 lastWorkout = lastWorkout,
@@ -321,9 +317,9 @@ fun NovaHomeScreen(
                 textColor = onSurfaceColor,
                 secondaryColor = onSurfaceVariant
             )
-            
+
             Spacer(Modifier.height(16.dp))
-            
+
             // Main input area - smaller height
             Box(
                 modifier = Modifier
@@ -350,7 +346,7 @@ fun NovaHomeScreen(
                         )
                     )
                 }
-                
+
                 BasicTextField(
                     value = inputText,
                     onValueChange = onInputTextChange,
@@ -366,9 +362,9 @@ fun NovaHomeScreen(
                     cursorBrush = SolidColor(primaryColor)
                 )
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             // Dynamic typing suggestions
             AnimatedVisibility(
                 visible = typingSuggestions.isNotEmpty() && inputText.isNotEmpty(),
@@ -394,15 +390,14 @@ fun NovaHomeScreen(
                                 }
                             },
                             surfaceColor = surfaceVariant,
-                            primaryColor = primaryColor,
-                            textColor = onSurfaceColor
+                            primaryColor = primaryColor
                         )
                     }
                 }
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             // Parsed results preview
 
             AnimatedVisibility(
@@ -427,10 +422,10 @@ fun NovaHomeScreen(
                     )
                 }
             }
-            
+
             Spacer(Modifier.height(100.dp)) // Bottom padding for nav bar
         }
-        
+
         // Examples popup
         AnimatedVisibility(
             visible = showExamplesPopup,
@@ -452,7 +447,7 @@ fun NovaHomeScreen(
                 outlineColor = outlineColor
             )
         }
-        
+
         // Success overlay
         AnimatedVisibility(
             visible = showSuccess,
@@ -496,7 +491,7 @@ fun NovaHomeScreen(
                 }
             }
         }
-        
+
         // Notification settings dialog
         if (showNotificationDialog) {
             NotificationSettingsDialog(
@@ -520,20 +515,20 @@ private fun ScheduleCard(
     textColor: Color,
     secondaryColor: Color
 ) {
-    var showIntervalPicker by remember { mutableStateOf(false) }
+    val showIntervalPickerState = remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
     val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    
+
     fun formatDate(dateStr: String?): String {
         if (dateStr == null) return "No workouts yet"
         return try {
             val date = inputFormatter.parse(dateStr)
             date?.let { dateFormatter.format(it) } ?: dateStr
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             dateStr
         }
     }
-    
+
     fun daysAgo(dateStr: String?): String {
         if (dateStr == null) return ""
         return try {
@@ -547,11 +542,11 @@ private fun ScheduleCard(
                 days < 7 -> "$days days ago"
                 else -> "${days / 7}w ago"
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ""
         }
     }
-    
+
     // Calculate next workout status
     val nextWorkoutStatus = remember(lastWorkout, workoutIntervalDays) {
         if (lastWorkout == null) {
@@ -566,29 +561,29 @@ private fun ScheduleCard(
                 val nextDate = calendar.time
                 val now = Calendar.getInstance().time
                 val daysUntil = TimeUnit.MILLISECONDS.toDays(nextDate.time - now.time)
-                
+
                 val hint = when {
                     daysUntil < 0 -> "Time to train!"
                     daysUntil == 0L -> "Workout day!"
                     daysUntil == 1L -> "Workout tomorrow"
                     daysUntil <= 2 -> "Rest day"
-                    else -> "Rest • ${daysUntil}d until next"
+                    else -> "Rest â€¢ ${daysUntil}d until next"
                 }
-                
+
                 val dateLabel = when {
                     daysUntil < 0 -> "Overdue"
                     daysUntil == 0L -> "Today"
                     daysUntil == 1L -> "Tomorrow"
                     else -> dateFormatter.format(nextDate)
                 }
-                
+
                 hint to dateLabel
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 "Time to train" to "Soon"
             }
         }
     }
-    
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -637,9 +632,9 @@ private fun ScheduleCard(
                     )
                 }
             }
-            
+
             Spacer(Modifier.height(14.dp))
-            
+
             // Last workout row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -673,7 +668,7 @@ private fun ScheduleCard(
                         )
                     }
                 }
-                
+
                 // Next due
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -694,9 +689,9 @@ private fun ScheduleCard(
                     )
                 }
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             // Status hint
             Box(
                 modifier = Modifier
@@ -710,7 +705,7 @@ private fun ScheduleCard(
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
-                    "→ ${nextWorkoutStatus.first}",
+                    "â†’ ${nextWorkoutStatus.first}",
                     style = TextStyle(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -719,16 +714,16 @@ private fun ScheduleCard(
                     )
                 )
             }
-            
+
             Spacer(Modifier.height(10.dp))
-            
+
             // Interval picker row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(outlineColor.copy(alpha = 0.08f))
-                    .clickable { showIntervalPicker = true }
+                    .clickable { showIntervalPickerState.value = true }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -767,16 +762,16 @@ private fun ScheduleCard(
             }
         }
     }
-    
+
     // Interval picker dialog
-    if (showIntervalPicker) {
+    if (showIntervalPickerState.value) {
         IntervalPickerDialog(
             currentInterval = workoutIntervalDays,
             onIntervalSelected = { days ->
                 onIntervalChange(days)
-                showIntervalPicker = false
+                showIntervalPickerState.value = false
             },
-            onDismiss = { showIntervalPicker = false },
+            onDismiss = { showIntervalPickerState.value = false },
             surfaceColor = surfaceColor,
             primaryColor = primaryColor,
             textColor = textColor,
@@ -797,13 +792,13 @@ private fun IntervalPickerDialog(
 ) {
     val intervalOptions = listOf(
         3 to "Every 3 days",
-        4 to "Every 4 days", 
+        4 to "Every 4 days",
         5 to "Every 5 days",
         7 to "Weekly (7 days)",
         10 to "Every 10 days",
         14 to "Every 2 weeks"
     )
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = surfaceColor,
@@ -829,7 +824,7 @@ private fun IntervalPickerDialog(
                     ),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                
+
                 intervalOptions.forEach { (days, label) ->
                     val isSelected = currentInterval == days
                     Row(
@@ -884,8 +879,7 @@ private fun SuggestionChip(
     text: String,
     onClick: () -> Unit,
     surfaceColor: Color,
-    primaryColor: Color,
-    textColor: Color
+    primaryColor: Color
 ) {
     Box(
         modifier = Modifier
@@ -916,7 +910,7 @@ private fun ParsedPreviewCompact(
     secondaryTextColor: Color
 ) {
     val warningColor = Color(0xFFFFD60A)
-    
+
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -939,9 +933,9 @@ private fun ParsedPreviewCompact(
                 modifier = Modifier.size(20.dp)
             )
         }
-        
+
         Spacer(Modifier.width(12.dp))
-        
+
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 "${result.parsedExercises.size} exercise${if (result.parsedExercises.size != 1) "s" else ""}",
@@ -960,7 +954,7 @@ private fun ParsedPreviewCompact(
                 maxLines = 1
             )
         }
-        
+
         if (result.unrecognizedLines.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -997,189 +991,198 @@ private fun generateTypingSuggestions(
     exercises: List<Exercise>
 ): List<String> {
     if (currentInput.isBlank()) return emptyList()
-    
+
     val lastLine = currentInput.lines().lastOrNull()?.trim() ?: return emptyList()
     if (lastLine.isEmpty()) return emptyList()
-    
+
     val lastLineLower = lastLine.lowercase()
-    
-    // Common aliases to check
-    val aliases = mapOf(
-        "bench" to "bench_press",
-        "dl" to "deadlift",
-        "dead" to "deadlift",
-        "ohp" to "ohp",
-        "squat" to "squat",
-        "row" to "row",
-        "pull" to "pulldown",
-        "incline" to "incline_press",
-        "inc" to "incline_press",
-        "lat" to "pulldown",
-        "calf" to "calf_raise",
-        "leg" to "leg_press"
-    )
-    
-    // Check if the line has a weight number - if so, adapt suggestions to use that weight
-    val hasWeight = lastLineLower.any { it.isDigit() }
-    
-    if (hasWeight) {
-        // Parse the exercise name and weight from input like "bench 115" or "bench 115 x"
-        val parts = lastLineLower.split(Regex("\\s+"))
-        if (parts.size >= 2) {
-            val exercisePart = parts[0]
-            val weightPart = parts.find { it.all { c -> c.isDigit() || c == '.' } }
-            
-            if (weightPart != null) {
-                val weight = weightPart.toIntOrNull() ?: weightPart.toFloatOrNull()?.toInt() ?: 135
-                
-                // Find which exercise this matches
-                var matchedName: String? = null
-                
-                // Check aliases first
-                for ((alias, exerciseId) in aliases) {
-                    if (exercisePart.startsWith(alias) || alias.startsWith(exercisePart)) {
-                        exercises.find { it.id == exerciseId }?.let {
-                            matchedName = alias
-                        }
-                        break
-                    }
-                }
-                
-                // Check exercise names
-                if (matchedName == null) {
-                    for (exercise in exercises) {
-                        val nameParts = exercise.name.lowercase().split(" ")
-                        if (nameParts.any { it.startsWith(exercisePart) }) {
-                            matchedName = nameParts.first()
-                            break
-                        }
-                    }
-                }
-                
-                matchedName?.let { name ->
-                    // Generate suggestions with the user's weight
-                    return listOf(
-                        "$name $weight x 6",
-                        "$name $weight x 8",
-                        "$name $weight 3x8",
-                        "$name $weight 3x5"
-                    )
-                }
-            }
-        }
-        // If we couldn't parse it but it has numbers, don't show suggestions
-        return emptyList()
-    }
-    
-    // No weight yet - show suggestions with default weights
-    val formats = listOf(
-        { name: String -> "$name 135 3x8" },        // sets x reps format
-        { name: String -> "$name 185 @ 3x5" },      // @ sets x reps
-        { name: String -> "$name 225 x 5" },        // weight x reps
-        { name: String -> "$name 135 - 12, 10, 8" } // drop set style
-    )
-    
-    val suggestions = mutableListOf<String>()
-    
-    var matchedName: String? = null
-    
-    // Check aliases first
-    for ((alias, exerciseId) in aliases) {
-        if (alias.startsWith(lastLineLower)) {
-            exercises.find { it.id == exerciseId }?.let {
-                matchedName = alias
-            }
-            break
-        }
-    }
-    
-    // Then check exercise names
-    if (matchedName == null) {
-        for (exercise in exercises) {
-            val nameLower = exercise.name.lowercase()
-            val nameWords = nameLower.split(" ")
-            
-            if (nameWords.any { it.startsWith(lastLineLower) } || nameLower.startsWith(lastLineLower)) {
-                matchedName = nameWords.first()
-                break
-            }
-        }
-    }
-    
-    // Generate varied format suggestions for the matched name
-    matchedName?.let { name ->
-        // Shuffle formats a bit based on input to add variety
-        val startIndex = name.length % formats.size
-        for (i in 0 until minOf(4, formats.size)) {
-            val formatIndex = (startIndex + i) % formats.size
-            suggestions.add(formats[formatIndex](name))
-        }
-    }
-    
-    return suggestions.distinct().take(4)
+
+    val matchedExercise = findSuggestionExercise(lastLineLower, exercises) ?: return emptyList()
+    val suggestionName = suggestionNameForExercise(matchedExercise)
+    val values = Regex("""\d+(?:\.\d+)?""")
+        .findAll(lastLineLower)
+        .mapNotNull { it.value.toFloatOrNull() }
+        .toList()
+
+    return if (matchedExercise.isCardio) {
+        cardioSuggestions(suggestionName, values)
+    } else {
+        strengthSuggestions(suggestionName, values)
+    }.distinct().take(4)
 }
 
 private fun generateExampleHints(customExercises: List<Exercise>): ExampleHints {
     val available = (allExercises + customExercises).distinctBy { it.id }
-    
+
     // Pick some exercises for examples
     val bench = available.find { it.id == "bench_press" || it.name.contains("bench", true) }
     val squat = available.find { it.id == "squat" || it.name.contains("squat", true) }
-    val deadlift = available.find { it.id == "deadlift" || it.name.contains("dead", true) }
     val row = available.find { it.id == "row" || it.name.contains("row", true) }
     val incline = available.find { it.id == "incline_press" || it.name.contains("incline", true) }
-    
+    val treadmill = available.find { it.id == "treadmill" }
+    val elliptical = available.find { it.id == "elliptical" }
+    val cableCrunch = available.find { it.id == "cable_crunch" }
+
     // Show varied formats in placeholder
     val placeholderLines = mutableListOf<String>()
     bench?.let { placeholderLines.add("bench 225 3x8") }
     squat?.let { placeholderLines.add("squat 315 @ 3x5") }
-    deadlift?.let { placeholderLines.add("dl 405 x 3") }
-    
+    treadmill?.let { placeholderLines.add("treadmill 20 min 250 cal") }
+    cableCrunch?.let { placeholderLines.add("cable crunch 80 x 15") }
+
     if (placeholderLines.isEmpty()) {
         available.firstOrNull()?.let {
-            val shortName = it.name.split(" ").first().lowercase()
-            placeholderLines.add("$shortName 135 3x10")
+            placeholderLines.add("${suggestionNameForExercise(it)} 135 3x10")
         }
     }
-    
+
     val examples = mutableListOf<ExampleItem>()
-    
+
     // Show different formats
     incline?.let {
         examples.add(ExampleItem(
             "incline 185 @ 3x5",
-            "→ ${it.name}: 3 sets of 5 @ 185lbs"
+            "-> ${it.name}: 3 sets of 5 @ 185 lbs"
         ))
     }
     bench?.let {
         examples.add(ExampleItem(
             "bench 225 3x8",
-            "→ ${it.name}: 3 sets of 8 @ 225lbs"
+            "-> ${it.name}: 3 sets of 8 @ 225 lbs"
         ))
     }
-    squat?.let {
+    treadmill?.let {
         examples.add(ExampleItem(
-            "squat 315 x 5",
-            "→ ${it.name}: 315lbs × 5 reps"
+            "treadmill 20 min 250 cal",
+            "-> ${it.name}: 20 min and 250 cal"
         ))
     }
-    deadlift?.let {
+    elliptical?.let {
         examples.add(ExampleItem(
-            "dl 405 - 5, 3, 1",
-            "→ ${it.name}: 405lbs × 5, 3, 1"
+            "elliptical 30 min 4500 steps",
+            "-> ${it.name}: 30 min and 4,500 steps"
         ))
     }
     row?.let {
         examples.add(ExampleItem(
             "row 185 12, 10, 8",
-            "→ ${it.name}: 185lbs × 12, 10, 8"
+            "-> ${it.name}: 185 lbs for 12, 10, and 8 reps"
         ))
     }
-    
+
     return ExampleHints(
         placeholder = placeholderLines.joinToString("\n"),
         examples = examples
     )
+}
+
+private fun findSuggestionExercise(
+    lastLineLower: String,
+    exercises: List<Exercise>
+): Exercise? {
+    val aliasMap = WorkoutParser.getAliasMap(exercises)
+    val aliasMatch = aliasMap.entries
+        .sortedByDescending { it.key.length }
+        .firstOrNull { (alias, _) ->
+            lastLineLower.startsWith(alias) || alias.startsWith(lastLineLower)
+        }
+        ?.value
+    if (aliasMatch != null) {
+        return exercises.find { it.name == aliasMatch }
+    }
+
+    return exercises.firstOrNull { exercise ->
+        val nameLower = exercise.name.lowercase()
+        val firstWord = exercise.name.substringBefore(" ").lowercase()
+        nameLower.startsWith(lastLineLower) ||
+            firstWord.startsWith(lastLineLower) ||
+            lastLineLower.startsWith(firstWord)
+    }
+}
+
+private fun suggestionNameForExercise(exercise: Exercise): String {
+    return when (exercise.id) {
+        "bench_press" -> "bench"
+        "incline_press" -> "incline"
+        "deadlift" -> "dl"
+        "pulldown" -> "pulldown"
+        "close_grip_pulldown" -> "close grip pulldown"
+        "ohp" -> "ohp"
+        else -> exercise.name.lowercase().replace(" machine", "")
+    }
+}
+
+private fun strengthSuggestions(
+    suggestionName: String,
+    values: List<Float>
+): List<String> {
+    val weight = values.firstOrNull()?.let(::formatSuggestionValue)
+    return if (weight != null) {
+        listOf(
+            "$suggestionName $weight x 6",
+            "$suggestionName $weight x 8",
+            "$suggestionName $weight 3x8",
+            "$suggestionName $weight 3x5"
+        )
+    } else {
+        listOf(
+            "$suggestionName 135 3x8",
+            "$suggestionName 185 @ 3x5",
+            "$suggestionName 225 x 5",
+            "$suggestionName 135 - 12, 10, 8"
+        )
+    }
+}
+
+private fun cardioSuggestions(
+    suggestionName: String,
+    values: List<Float>
+): List<String> {
+    val first = values.firstOrNull()
+    if (first == null) {
+        return listOf(
+            "$suggestionName 20 min",
+            "$suggestionName 20 min 250 cal",
+            "$suggestionName 25 min 4000 steps",
+            "$suggestionName 2.5 mi 20 min"
+        )
+    }
+
+    val valueLabel = formatSuggestionValue(first)
+    return when {
+        first >= 1000f -> listOf(
+            "$suggestionName $valueLabel steps 20 min",
+            "$suggestionName 20 min $valueLabel steps",
+            "$suggestionName 20 min $valueLabel steps 250 cal",
+            "$suggestionName $valueLabel steps 30 min"
+        )
+        first >= 100f -> listOf(
+            "$suggestionName $valueLabel cal 20 min",
+            "$suggestionName 20 min $valueLabel cal",
+            "$suggestionName 25 min $valueLabel cal",
+            "$suggestionName 2.5 mi 20 min $valueLabel cal"
+        )
+        first % 1f != 0f -> listOf(
+            "$suggestionName $valueLabel mi 20 min",
+            "$suggestionName 20 min $valueLabel mi",
+            "$suggestionName $valueLabel mi 20 min 250 cal",
+            "$suggestionName $valueLabel mi 30 min"
+        )
+        else -> listOf(
+            "$suggestionName $valueLabel min",
+            "$suggestionName $valueLabel min 250 cal",
+            "$suggestionName $valueLabel min 4000 steps",
+            "$suggestionName 2.5 mi $valueLabel min"
+        )
+    }
+}
+
+private fun formatSuggestionValue(value: Float): String {
+    return if (value % 1f == 0f) {
+        value.toInt().toString()
+    } else {
+        String.format(Locale.getDefault(), "%.1f", value)
+    }
 }
 
 @Composable
@@ -1255,7 +1258,7 @@ private fun ExamplesPopup(
                     )
                 }
             }
-            
+
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.height(280.dp)
@@ -1266,7 +1269,7 @@ private fun ExamplesPopup(
                         delay(index * 60L)
                         visible = true
                     }
-                    
+
                     AnimatedVisibility(
                         visible = visible,
                         enter = slideInVertically(
@@ -1304,9 +1307,9 @@ private fun ExamplesPopup(
                     }
                 }
             }
-            
+
             Spacer(Modifier.height(20.dp))
-            
+
             // Aliases hint
             Box(
                 modifier = Modifier
@@ -1317,7 +1320,7 @@ private fun ExamplesPopup(
             ) {
                 Column {
                     Text(
-                        "💡 Shortcuts",
+                        "ðŸ’¡ Shortcuts",
                         style = TextStyle(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1326,7 +1329,7 @@ private fun ExamplesPopup(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "dl → Deadlift • ohp → Overhead Press • bench → Flat Bench Press",
+                        "dl -> Deadlift ï¿½ ohp -> Overhead Press ï¿½ tread -> Treadmill ï¿½ ellip -> Elliptical",
                         style = TextStyle(
                             fontSize = 12.sp,
                             color = secondaryTextColor,
@@ -1335,9 +1338,9 @@ private fun ExamplesPopup(
                     )
                 }
             }
-            
+
             Spacer(Modifier.height(16.dp))
-            
+
             // Dismiss button
             Box(
                 modifier = Modifier
@@ -1360,4 +1363,3 @@ private fun ExamplesPopup(
         }
     }
 }
-

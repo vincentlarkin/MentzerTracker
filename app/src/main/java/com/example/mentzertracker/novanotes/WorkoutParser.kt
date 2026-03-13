@@ -3,6 +3,7 @@ package com.vincentlarkin.mentzertracker.novanotes
 import com.vincentlarkin.mentzertracker.Exercise
 import com.vincentlarkin.mentzertracker.ExerciseSetEntry
 import com.vincentlarkin.mentzertracker.allExercises
+import com.vincentlarkin.mentzertracker.isCardio
 import java.util.Locale
 
 /**
@@ -16,9 +17,25 @@ data class ParsedExercise(
 )
 
 data class ParsedSet(
-    val weight: Float,
-    val reps: Int
-)
+    val weight: Float = 0f,
+    val reps: Int = 0,
+    val durationMinutes: Float? = null,
+    val distanceMiles: Float? = null,
+    val calories: Int? = null,
+    val steps: Int? = null
+) {
+    fun toSetEntry(exerciseId: String): ExerciseSetEntry {
+        return ExerciseSetEntry(
+            exerciseId = exerciseId,
+            weight = weight,
+            reps = reps,
+            durationMinutes = durationMinutes,
+            distanceMiles = distanceMiles,
+            calories = calories,
+            steps = steps
+        )
+    }
+}
 
 data class ParseResult(
     val parsedExercises: List<ParsedExercise>,
@@ -28,17 +45,17 @@ data class ParseResult(
 /**
  * Intelligent workout parser that converts natural language input
  * into structured workout data.
- * 
+ *
  * Supported formats:
- * - "bench 225 - 8, 8, 6" → Bench press: 225lbs x 8, x8, x6 reps
- * - "squat 3x5 @ 315" → Squat: 3 sets of 5 reps at 315lbs
- * - "deadlift 405 x 3" → Deadlift: 405lbs x 3 reps
- * - "ohp 135 8" → Overhead press: 135lbs x 8 reps
- * - "pulldown 150 12, 10, 8" → Pulldown: 150lbs x 12, x10, x8
- * - "row 185 4x8" → Row: 4 sets of 8 reps at 185lbs
+ * - "bench 225 - 8, 8, 6" â†’ Bench press: 225lbs x 8, x8, x6 reps
+ * - "squat 3x5 @ 315" â†’ Squat: 3 sets of 5 reps at 315lbs
+ * - "deadlift 405 x 3" â†’ Deadlift: 405lbs x 3 reps
+ * - "ohp 135 8" â†’ Overhead press: 135lbs x 8 reps
+ * - "pulldown 150 12, 10, 8" â†’ Pulldown: 150lbs x 12, x10, x8
+ * - "row 185 4x8" â†’ Row: 4 sets of 8 reps at 185lbs
  */
 object WorkoutParser {
-    
+
     // Comprehensive aliases for exercise name variations
     // Maps shorthand/common terms to exercise IDs defined in WorkoutData.kt
     private val exerciseAliases = mapOf(
@@ -49,56 +66,56 @@ object WorkoutParser {
         "flat" to "bench_press",
         "barbell bench" to "bench_press",
         "bb bench" to "bench_press",
-        
+
         "incline" to "incline_press",
         "incline press" to "incline_press",
         "incline bench" to "incline_press",
         "incline bb" to "incline_press",
-        
+
         "decline" to "decline_press",
         "decline press" to "decline_press",
         "decline bench" to "decline_press",
-        
+
         "db press" to "dumbbell_press",
         "dumbbell press" to "dumbbell_press",
         "dumbbell bench" to "dumbbell_press",
-        
+
         "incline db" to "incline_db_press",
         "incline dumbbell" to "incline_db_press",
         "incline db press" to "incline_db_press",
-        
+
         "fly" to "chest_fly",
         "flys" to "chest_fly",
         "flies" to "chest_fly",
         "chest fly" to "chest_fly",
         "db fly" to "chest_fly",
         "dumbbell fly" to "chest_fly",
-        
+
         "cable fly" to "cable_fly",
         "cable flys" to "cable_fly",
         "cable flies" to "cable_fly",
-        
+
         "pec deck" to "pec_deck",
         "pec" to "pec_deck",
         "peck deck" to "pec_deck",
-        
+
         "push up" to "push_ups",
         "push ups" to "push_ups",
         "pushup" to "push_ups",
         "pushups" to "push_ups",
-        
+
         "dips" to "dips",
         "dip" to "dips",
         "chest dips" to "dips",
         "tricep dips" to "dips",
-        
+
         // === BACK ===
         "deadlift" to "deadlift",
         "dl" to "deadlift",
         "dead" to "deadlift",
         "deads" to "deadlift",
         "conventional" to "deadlift",
-        
+
         "row" to "row",
         "rows" to "row",
         "barbell row" to "row",
@@ -107,18 +124,18 @@ object WorkoutParser {
         "bent row" to "row",
         "pendlay" to "row",
         "pendlay row" to "row",
-        
+
         "db row" to "dumbbell_row",
         "dumbbell row" to "dumbbell_row",
         "one arm row" to "dumbbell_row",
         "single arm row" to "dumbbell_row",
-        
+
         "cable row" to "cable_row",
-        
+
         "seated row" to "seated_row",
         "seated cable row" to "seated_row",
         "machine row" to "seated_row",
-        
+
         "pulldown" to "pulldown",
         "pull down" to "pulldown",
         "lat pulldown" to "pulldown",
@@ -126,47 +143,47 @@ object WorkoutParser {
         "lat" to "pulldown",
         "lats" to "pulldown",
         "wide grip pulldown" to "pulldown",
-        
+
         "close grip pulldown" to "close_grip_pulldown",
         "close pulldown" to "close_grip_pulldown",
         "close grip" to "close_grip_pulldown",
         "close-grip" to "close_grip_pulldown",
         "underhand pulldown" to "close_grip_pulldown",
 
-        
+
         "pull up" to "pull_ups",
         "pull ups" to "pull_ups",
         "pullup" to "pull_ups",
         "pullups" to "pull_ups",
-        
+
         "chin up" to "chin_ups",
         "chin ups" to "chin_ups",
         "chinup" to "chin_ups",
         "chinups" to "chin_ups",
         "chins" to "chin_ups",
-        
+
         "t bar" to "t_bar_row",
         "t bar row" to "t_bar_row",
         "tbar" to "t_bar_row",
-        
+
         "shrug" to "shrugs",
         "shrugs" to "shrugs",
         "barbell shrug" to "shrugs",
         "db shrug" to "shrugs",
         "trap" to "shrugs",
         "traps" to "shrugs",
-        
+
         "face pull" to "face_pulls",
         "face pulls" to "face_pulls",
         "facepull" to "face_pulls",
         "facepulls" to "face_pulls",
-        
+
         "lat prayer" to "lat_prayer",
         "prayer" to "lat_prayer",
-        
+
         "straight arm" to "straight_arm_pulldown",
         "straight arm pulldown" to "straight_arm_pulldown",
-        
+
         // === SHOULDERS ===
         "ohp" to "ohp",
         "overhead press" to "ohp",
@@ -176,100 +193,100 @@ object WorkoutParser {
         "press" to "ohp",
         "standing press" to "ohp",
         "barbell press" to "ohp",
-        
+
         "shoulder press" to "dumbbell_shoulder_press",
         "db shoulder press" to "dumbbell_shoulder_press",
         "seated shoulder press" to "dumbbell_shoulder_press",
         "db ohp" to "dumbbell_shoulder_press",
-        
+
         "arnold" to "arnold_press",
         "arnold press" to "arnold_press",
         "arnolds" to "arnold_press",
-        
+
         "lateral raise" to "lateral_raise",
         "lateral" to "lateral_raise",
         "lat raise" to "lateral_raise",
         "side raise" to "lateral_raise",
         "side lateral" to "lateral_raise",
         "laterals" to "lateral_raise",
-        
+
         "front raise" to "front_raise",
         "front" to "front_raise",
-        
+
         "rear delt" to "rear_delt_fly",
         "rear delt fly" to "rear_delt_fly",
         "reverse fly" to "rear_delt_fly",
         "rear fly" to "rear_delt_fly",
         "rear delts" to "rear_delt_fly",
-        
+
         "upright row" to "upright_row",
         "upright" to "upright_row",
-        
+
         // === LEGS ===
         "squat" to "squat",
         "squats" to "squat",
         "back squat" to "squat",
         "barbell squat" to "squat",
         "bb squat" to "squat",
-        
+
         "front squat" to "front_squat",
         "front squats" to "front_squat",
-        
+
         "hack squat" to "hack_squat",
         "hack" to "hack_squat",
-        
+
         "leg press" to "leg_press",
         "legpress" to "leg_press",
-        
+
         "lunge" to "lunges",
         "lunges" to "lunges",
         "walking lunge" to "lunges",
         "walking lunges" to "lunges",
         "db lunge" to "lunges",
-        
+
         "leg extension" to "leg_extension",
         "leg ext" to "leg_extension",
         "extensions" to "leg_extension",
         "quad extension" to "leg_extension",
-        
+
         "leg curl" to "leg_curl",
         "hamstring curl" to "leg_curl",
         "lying leg curl" to "leg_curl",
         "seated leg curl" to "leg_curl",
-        
+
         "rdl" to "romanian_deadlift",
         "romanian" to "romanian_deadlift",
         "romanian deadlift" to "romanian_deadlift",
-        
+
         "sldl" to "stiff_leg_deadlift",
         "stiff leg" to "stiff_leg_deadlift",
         "stiff leg deadlift" to "stiff_leg_deadlift",
-        
+
         "hip thrust" to "hip_thrust",
         "thrust" to "hip_thrust",
         "barbell hip thrust" to "hip_thrust",
-        
+
         "glute bridge" to "glute_bridge",
         "bridge" to "glute_bridge",
-        
+
         "calf raise" to "calf_raise",
         "calf raises" to "calf_raise",
         "calves" to "calf_raise",
         "calf" to "calf_raise",
         "standing calf" to "calf_raise",
         "standing calf raise" to "calf_raise",
-        
+
         "seated calf" to "seated_calf",
         "seated calf raise" to "seated_calf",
-        
+
         "goblet squat" to "goblet_squat",
         "goblet" to "goblet_squat",
-        
+
         "bulgarian" to "bulgarian_split_squat",
         "bulgarian split squat" to "bulgarian_split_squat",
         "bss" to "bulgarian_split_squat",
         "split squat" to "bulgarian_split_squat",
-        
+
         // === BICEPS ===
         "curl" to "bicep_curl",
         "curls" to "bicep_curl",
@@ -279,30 +296,30 @@ object WorkoutParser {
         "bb curl" to "bicep_curl",
         "db curl" to "bicep_curl",
         "dumbbell curl" to "bicep_curl",
-        
+
         "hammer" to "hammer_curl",
         "hammer curl" to "hammer_curl",
         "hammer curls" to "hammer_curl",
         "hammers" to "hammer_curl",
-        
+
         "preacher" to "preacher_curl",
         "preacher curl" to "preacher_curl",
         "preacher curls" to "preacher_curl",
-        
+
         "concentration" to "concentration_curl",
         "concentration curl" to "concentration_curl",
-        
+
         "cable curl" to "cable_curl",
         "cable curls" to "cable_curl",
-        
+
         "incline curl" to "incline_curl",
         "incline curls" to "incline_curl",
         "incline db curl" to "incline_curl",
-        
+
         "ez curl" to "ez_bar_curl",
         "ez bar curl" to "ez_bar_curl",
         "ez bar" to "ez_bar_curl",
-        
+
         // === TRICEPS ===
         "pushdown" to "tricep_pushdown",
         "pushdowns" to "tricep_pushdown",
@@ -310,82 +327,110 @@ object WorkoutParser {
         "triceps pushdown" to "tricep_pushdown",
         "tri pushdown" to "tricep_pushdown",
         "cable pushdown" to "tricep_pushdown",
-        
+
         "rope pushdown" to "rope_pushdown",
         "rope" to "rope_pushdown",
         "rope extension" to "rope_pushdown",
-        
+
         "skull crusher" to "skull_crushers",
         "skull crushers" to "skull_crushers",
         "skulls" to "skull_crushers",
         "skullcrushers" to "skull_crushers",
         "lying tricep extension" to "skull_crushers",
-        
+
         "overhead extension" to "overhead_extension",
         "overhead tricep" to "overhead_extension",
         "tricep overhead" to "overhead_extension",
         "french press" to "overhead_extension",
-        
+
         "close grip bench" to "close_grip_bench",
         "cgbp" to "close_grip_bench",
         "close grip" to "close_grip_bench",
-        
+
         "kickback" to "tricep_kickback",
         "kickbacks" to "tricep_kickback",
         "tricep kickback" to "tricep_kickback",
-        
+
         // === CORE ===
         "crunch" to "crunches",
         "crunches" to "crunches",
         "ab crunch" to "crunches",
-        
+
         "leg raise" to "leg_raises",
         "leg raises" to "leg_raises",
         "lying leg raise" to "leg_raises",
-        
+
         "hanging leg raise" to "hanging_leg_raise",
         "hanging raise" to "hanging_leg_raise",
         "hanging" to "hanging_leg_raise",
-        
+
         "plank" to "plank",
         "planks" to "plank",
-        
+
         "cable crunch" to "cable_crunch",
         "cable crunches" to "cable_crunch",
-        
+
         "russian twist" to "russian_twist",
         "russian twists" to "russian_twist",
-        
+
         "ab wheel" to "ab_wheel",
         "wheel" to "ab_wheel",
         "rollout" to "ab_wheel",
         "rollouts" to "ab_wheel",
-        
+
         "sit up" to "sit_ups",
         "sit ups" to "sit_ups",
         "situp" to "sit_ups",
         "situps" to "sit_ups",
-        
+
         // === MACHINES ===
         "chest press" to "chest_press_machine",
         "chest press machine" to "chest_press_machine",
         "machine chest press" to "chest_press_machine",
-        
+
         "shoulder press machine" to "shoulder_press_machine",
         "machine shoulder press" to "shoulder_press_machine",
-        
+
         "smith" to "smith_squat",
         "smith squat" to "smith_squat",
         "smith machine squat" to "smith_squat",
-        
+
         "smith bench" to "smith_bench",
         "smith machine bench" to "smith_bench",
-        
+
         "crossover" to "cable_crossover",
         "cable crossover" to "cable_crossover",
         "crossovers" to "cable_crossover"
     )
-    
+
+    private val repsOnlyExerciseIds = setOf(
+        "push_ups",
+        "pull_ups",
+        "chin_ups",
+        "crunches",
+        "decline_crunch",
+        "reverse_crunch",
+        "bicycle_crunch",
+        "oblique_crunch",
+        "leg_raises",
+        "hanging_leg_raise",
+        "hanging_knee_raise",
+        "captains_chair_raise",
+        "sit_ups",
+        "v_up",
+        "toe_touch",
+        "flutter_kick",
+        "scissor_kick",
+        "dead_bug",
+        "mountain_climber"
+    )
+
+    private val timedHoldExerciseIds = setOf(
+        "plank",
+        "side_plank",
+        "hollow_hold"
+    )
+
     /**
      * Get a display-friendly mapping of aliases to exercise names.
      * Useful for showing users what shortcuts are available.
@@ -422,7 +467,7 @@ object WorkoutParser {
         }
         return combined
     }
-    
+
     /**
      * Parse multiline workout text into structured data.
      */
@@ -433,9 +478,9 @@ object WorkoutParser {
         val lines = input.trim().lines().filter { it.isNotBlank() }
         val parsedExercises = mutableListOf<ParsedExercise>()
         val unrecognizedLines = mutableListOf<String>()
-        
+
         val allAvailableExercises = allExercises + customExercises
-        
+
         for (line in lines) {
             val parsed = parseLine(line.trim(), allAvailableExercises)
             if (parsed != null) {
@@ -444,10 +489,10 @@ object WorkoutParser {
                 unrecognizedLines.add(line)
             }
         }
-        
+
         return ParseResult(parsedExercises, unrecognizedLines)
     }
-    
+
     /**
      * Parse a single line of workout text.
      */
@@ -456,11 +501,11 @@ object WorkoutParser {
         availableExercises: List<Exercise>
     ): ParsedExercise? {
         val normalizedLine = line.lowercase().trim()
-        
+
         // Try to find exercise match
         var matchedExercise: Exercise? = null
         var remainingText = normalizedLine
-        
+
         // First check aliases (longer matches first)
         val aliasLookup = buildAliasLookup(availableExercises)
         val sortedAliases = aliasLookup.keys.sortedByDescending { it.length }
@@ -474,7 +519,7 @@ object WorkoutParser {
                 }
             }
         }
-        
+
         // Then check exercise names directly
         if (matchedExercise == null) {
             for (exercise in availableExercises.sortedByDescending { it.name.length }) {
@@ -486,7 +531,7 @@ object WorkoutParser {
                 }
             }
         }
-        
+
         // Check custom exercise aliases from name parts
         if (matchedExercise == null) {
             for (exercise in availableExercises) {
@@ -501,35 +546,41 @@ object WorkoutParser {
                 if (matchedExercise != null) break
             }
         }
-        
+
         if (matchedExercise == null) return null
-        
-        // Parse the numbers portion
-        val sets = parseNumbers(remainingText)
+
+        val sets = if (matchedExercise.isCardio) {
+            parseCardioMetrics(remainingText)
+        } else {
+            parseStrengthSets(remainingText, matchedExercise)
+        }
         if (sets.isEmpty()) return null
-        
+
         return ParsedExercise(
             exercise = matchedExercise,
             sets = sets,
             rawText = line
         )
     }
-    
+
     /**
      * Parse the numbers portion of the workout text.
      * Supports various formats:
-     * - "225 - 8, 8, 6" → weight 225, reps [8, 8, 6]
-     * - "3x5 @ 315" → 3 sets of 5 at 315
-     * - "405 x 3" → 405 x 3
-     * - "135 8" → 135 x 8
-     * - "150 12, 10, 8" → 150 x [12, 10, 8]
-     * - "185 4x8" → 4 sets of 8 at 185
+     * - "225 - 8, 8, 6" â†’ weight 225, reps [8, 8, 6]
+     * - "3x5 @ 315" â†’ 3 sets of 5 at 315
+     * - "405 x 3" â†’ 405 x 3
+     * - "135 8" â†’ 135 x 8
+     * - "150 12, 10, 8" â†’ 150 x [12, 10, 8]
+     * - "185 4x8" â†’ 4 sets of 8 at 185
      */
-    private fun parseNumbers(text: String): List<ParsedSet> {
+    private fun parseStrengthSets(
+        text: String,
+        exercise: Exercise? = null
+    ): List<ParsedSet> {
         val cleaned = text
             .replace("-", " ")
             .replace("@", " ")
-            .replace("×", "x")
+            .replace("Ã—", "x")
             .replace("X", "x")
             .replace("lbs", "")
             .replace("lb", "")
@@ -537,9 +588,17 @@ object WorkoutParser {
             .replace("reps", "")
             .replace("rep", "")
             .trim()
-        
+
         if (cleaned.isEmpty()) return emptyList()
-        
+
+        exercise?.let { matchedExercise ->
+            parseTimedHoldSet(cleaned, matchedExercise)?.let { return listOf(it) }
+            val repsOnlySets = parseRepsOnlySets(cleaned, matchedExercise)
+            if (repsOnlySets.isNotEmpty()) {
+                return repsOnlySets
+            }
+        }
+
         // Try "NxM @ W" or "NxM W" format (sets x reps @ weight)
         val setsRepsWeightPattern = Regex("""(\d+)\s*x\s*(\d+)\s+(\d+(?:\.\d+)?)""")
         setsRepsWeightPattern.find(cleaned)?.let { match ->
@@ -548,7 +607,7 @@ object WorkoutParser {
             val weight = match.groupValues[3].toFloatOrNull() ?: return emptyList()
             return List(numSets) { ParsedSet(weight, reps) }
         }
-        
+
         // Try "W NxM" format (weight sets x reps)
         val weightSetsRepsPattern = Regex("""(\d+(?:\.\d+)?)\s+(\d+)\s*x\s*(\d+)""")
         weightSetsRepsPattern.find(cleaned)?.let { match ->
@@ -557,7 +616,7 @@ object WorkoutParser {
             val reps = match.groupValues[3].toIntOrNull() ?: return emptyList()
             return List(numSets) { ParsedSet(weight, reps) }
         }
-        
+
         // Try "W x R" format (weight x reps, single set)
         val weightRepsPattern = Regex("""(\d+(?:\.\d+)?)\s*x\s*(\d+)""")
         weightRepsPattern.find(cleaned)?.let { match ->
@@ -565,7 +624,7 @@ object WorkoutParser {
             val reps = match.groupValues[2].toIntOrNull() ?: return emptyList()
             return listOf(ParsedSet(weight, reps))
         }
-        
+
         // Try "W R, R, R" format (weight followed by comma-separated reps)
         val weightMultiRepsPattern = Regex("""(\d+(?:\.\d+)?)\s+([\d\s,]+)""")
         weightMultiRepsPattern.find(cleaned)?.let { match ->
@@ -577,7 +636,7 @@ object WorkoutParser {
                 return repsList.map { ParsedSet(weight, it) }
             }
         }
-        
+
         // Try simple "W R" format (weight space reps)
         val simplePattern = Regex("""(\d+(?:\.\d+)?)\s+(\d+)""")
         simplePattern.find(cleaned)?.let { match ->
@@ -585,23 +644,217 @@ object WorkoutParser {
             val reps = match.groupValues[2].toIntOrNull() ?: return emptyList()
             return listOf(ParsedSet(weight, reps))
         }
-        
+
         return emptyList()
     }
-    
+
+    private fun parseRepsOnlySets(cleaned: String, exercise: Exercise): List<ParsedSet> {
+        if (exercise.id !in repsOnlyExerciseIds) return emptyList()
+
+        val setsRepsPattern = Regex("""(\d+)\s*x\s*(\d+)""")
+        setsRepsPattern.find(cleaned)?.let { match ->
+            val numSets = match.groupValues[1].toIntOrNull() ?: return emptyList()
+            val reps = match.groupValues[2].toIntOrNull() ?: return emptyList()
+            return List(numSets) { ParsedSet(weight = 0f, reps = reps) }
+        }
+
+        val multiReps = cleaned.split(Regex("[,\\s]+"))
+            .mapNotNull { it.trim().toIntOrNull() }
+        if (multiReps.size > 1) {
+            return multiReps.map { ParsedSet(weight = 0f, reps = it) }
+        }
+
+        cleaned.toIntOrNull()?.let { reps ->
+            return listOf(ParsedSet(weight = 0f, reps = reps))
+        }
+
+        return emptyList()
+    }
+
+    private fun parseTimedHoldSet(cleaned: String, exercise: Exercise): ParsedSet? {
+        if (exercise.id !in timedHoldExerciseIds) return null
+
+        Regex("""(\d+(?:\.\d+)?)\s*(?:sec|secs|second|seconds)\b""").find(cleaned)?.let { match ->
+            val seconds = match.groupValues[1].toFloatOrNull() ?: return null
+            return ParsedSet(durationMinutes = seconds / 60f)
+        }
+
+        Regex("""(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b""").find(cleaned)?.let { match ->
+            val minutes = match.groupValues[1].toFloatOrNull() ?: return null
+            return ParsedSet(durationMinutes = minutes)
+        }
+
+        cleaned.toFloatOrNull()?.let { seconds ->
+            return ParsedSet(durationMinutes = seconds / 60f)
+        }
+
+        return null
+    }
+
+    private fun parseCardioMetrics(text: String): List<ParsedSet> {
+        val cleaned = text
+            .replace("@", " ")
+            .replace("-", " ")
+            .replace(",", " ")
+            .replace("Ãƒâ€”", " x ")
+            .replace("Ã—", " x ")
+            .replace("X", " x ")
+            .trim()
+            .replace(Regex("""\s+"""), " ")
+
+        if (cleaned.isEmpty()) return emptyList()
+
+        val consumedRanges = mutableListOf<IntRange>()
+        var durationMinutes: Float? = null
+        var distanceMiles: Float? = null
+        var calories: Int? = null
+        var steps: Int? = null
+
+        Regex("""(\d+)\s*:\s*(\d{1,2})""").find(cleaned)?.let { match ->
+            val minutes = match.groupValues[1].toIntOrNull() ?: 0
+            val seconds = match.groupValues[2].toIntOrNull() ?: 0
+            durationMinutes = minutes + (seconds / 60f)
+            consumedRanges += match.range
+        }
+
+        val hourMatches = Regex("""(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b""")
+            .findAll(cleaned)
+            .toList()
+        val minuteMatches = Regex("""(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b""")
+            .findAll(cleaned)
+            .toList()
+        if (hourMatches.isNotEmpty() || minuteMatches.isNotEmpty()) {
+            val totalMinutes =
+                hourMatches.sumOf { (it.groupValues[1].toDoubleOrNull() ?: 0.0) * 60.0 } +
+                    minuteMatches.sumOf { it.groupValues[1].toDoubleOrNull() ?: 0.0 }
+            if (totalMinutes > 0.0) {
+                durationMinutes = totalMinutes.toFloat()
+            }
+            consumedRanges += hourMatches.map { it.range }
+            consumedRanges += minuteMatches.map { it.range }
+        }
+
+        Regex("""(\d+(?:\.\d+)?)\s*(?:mi|mile|miles)\b""").find(cleaned)?.let { match ->
+            distanceMiles = match.groupValues[1].toFloatOrNull()
+            consumedRanges += match.range
+        }
+
+        Regex("""(\d+(?:\.\d+)?)\s*(?:km|kilometer|kilometers)\b""").find(cleaned)?.let { match ->
+            val km = match.groupValues[1].toFloatOrNull()
+            if (km != null) {
+                distanceMiles = km * 0.621371f
+                consumedRanges += match.range
+            }
+        }
+
+        Regex("""(\d+)\s*(?:cal|cals|calorie|calories|kcal)\b""").find(cleaned)?.let { match ->
+            calories = match.groupValues[1].toIntOrNull()
+            consumedRanges += match.range
+        }
+
+        Regex("""(\d+)\s*(?:step|steps)\b""").find(cleaned)?.let { match ->
+            steps = match.groupValues[1].toIntOrNull()
+            consumedRanges += match.range
+        }
+
+        val hasExplicitMetric = durationMinutes != null ||
+            distanceMiles != null ||
+            calories != null ||
+            steps != null
+        if (!hasExplicitMetric) {
+            val pairPattern = Regex("""(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)""")
+            pairPattern.find(cleaned)?.let { match ->
+                val first = match.groupValues[1].toFloatOrNull() ?: return emptyList()
+                val second = match.groupValues[2].toFloatOrNull() ?: return emptyList()
+                return inferCardioPair(first, second)?.let(::listOf) ?: emptyList()
+            }
+        }
+
+        val bareNumbers = Regex("""\d+(?:\.\d+)?""")
+            .findAll(cleaned)
+            .mapNotNull { match ->
+                if (consumedRanges.any { it.overlaps(match.range) }) {
+                    null
+                } else {
+                    match.value.toFloatOrNull()
+                }
+            }
+            .toList()
+
+        bareNumbers.forEach { value ->
+            when {
+                steps == null && value >= 1000f -> steps = value.toInt()
+                calories == null && value >= 100f -> calories = value.toInt()
+                distanceMiles == null && (value % 1f != 0f || value <= 10f) -> {
+                    distanceMiles = value
+                }
+                durationMinutes == null && value <= 240f -> durationMinutes = value
+            }
+        }
+
+        if (
+            durationMinutes == null &&
+            bareNumbers.size == 1 &&
+            distanceMiles == null &&
+            calories == null &&
+            steps == null
+        ) {
+            durationMinutes = bareNumbers.first()
+        }
+
+        return if (
+            durationMinutes != null ||
+            distanceMiles != null ||
+            calories != null ||
+            steps != null
+        ) {
+            listOf(
+                ParsedSet(
+                    durationMinutes = durationMinutes,
+                    distanceMiles = distanceMiles,
+                    calories = calories,
+                    steps = steps
+                )
+            )
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun IntRange.overlaps(other: IntRange): Boolean {
+        return first <= other.last && other.first <= last
+    }
+
+    private fun inferCardioPair(first: Float, second: Float): ParsedSet? {
+        return when {
+            first >= 1000f || second >= 1000f -> {
+                ParsedSet(
+                    durationMinutes = if (first >= 1000f) second else first,
+                    steps = if (first >= 1000f) first.toInt() else second.toInt()
+                )
+            }
+            first >= 100f || second >= 100f -> {
+                ParsedSet(
+                    durationMinutes = if (first >= 100f) second else first,
+                    calories = if (first >= 100f) first.toInt() else second.toInt()
+                )
+            }
+            first % 1f != 0f || second % 1f != 0f || first <= 10f || second <= 10f -> {
+                ParsedSet(
+                    durationMinutes = maxOf(first, second),
+                    distanceMiles = minOf(first, second)
+                )
+            }
+            else -> ParsedSet(durationMinutes = first)
+        }
+    }
+
     /**
      * Convert parsed exercises to ExerciseSetEntry list for saving.
      */
     fun toSetEntries(parsedExercises: List<ParsedExercise>): List<ExerciseSetEntry> {
         return parsedExercises.flatMap { parsed ->
-            parsed.sets.map { set ->
-                ExerciseSetEntry(
-                    exerciseId = parsed.exercise.id,
-                    weight = set.weight,
-                    reps = set.reps
-                )
-            }
+            parsed.sets.map { set -> set.toSetEntry(parsed.exercise.id) }
         }
     }
 }
-

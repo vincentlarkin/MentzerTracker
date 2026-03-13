@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
 import androidx.core.content.edit
 import androidx.core.view.WindowCompat
@@ -51,7 +50,6 @@ class MainActivity : ComponentActivity() {
 
 // ---------- UI-ONLY MODELS ----------
 enum class ThemeMode { DARK, LIGHT }
-private val ScreenPadding = 16.dp
 private const val UI_SCALE_FACTOR = 0.94f
 
 internal const val CUSTOM_EXERCISE_NAME_LIMIT = 40
@@ -161,7 +159,10 @@ private fun UserWorkoutConfig.sanitized(): UserWorkoutConfig {
                     if (trimmed.isBlank()) null else trimmed
                 }
                 .distinctBy { it.lowercase(Locale.ROOT) }
-            exercise.copy(aliases = sanitizedAliases)
+            exercise.copy(
+                aliases = sanitizedAliases,
+                trackingMode = exercise.resolvedTrackingMode
+            )
         }
     return copy(customExercises = filtered)
 }

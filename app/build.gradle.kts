@@ -4,7 +4,6 @@ kotlin {
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -16,8 +15,8 @@ android {
         applicationId = "com.vincentlarkin.mentzertracker"
         minSdk = 29
         targetSdk = 36
-        versionCode = 9
-        versionName = "2.4Beta"
+        versionCode = 10
+        versionName = "2.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,9 +33,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-
     }
     buildFeatures {
         compose = true
