@@ -149,7 +149,7 @@ object NotificationHelper {
     }
 
     private fun buildReminderMessage(context: Context): String {
-        return "Weekly check-in: log today’s workout and stay consistent."
+        return "Weekly check-in: log today's workout and stay consistent."
     }
 
 

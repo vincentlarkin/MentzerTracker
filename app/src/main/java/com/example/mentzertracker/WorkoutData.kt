@@ -63,7 +63,7 @@ fun ExerciseSetEntry.isCardioEntry(exercise: Exercise? = null): Boolean {
 fun formatExerciseEntrySummary(
     entry: ExerciseSetEntry,
     exercise: Exercise? = null,
-    separator: String = " Â· "
+    separator: String = " | "
 ): String {
     return if (entry.isCardioEntry(exercise)) {
         formatCardioEntry(entry, separator)
@@ -75,7 +75,7 @@ fun formatExerciseEntrySummary(
 
 fun formatExerciseEntryCompact(entry: ExerciseSetEntry, exercise: Exercise? = null): String {
     return if (entry.isCardioEntry(exercise)) {
-        formatCardioEntry(entry, " Â· ")
+        formatCardioEntry(entry, " | ")
     } else {
         "${formatWeightValue(entry.weight, includeUnit = false)}x${entry.reps}"
     }

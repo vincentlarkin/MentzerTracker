@@ -54,9 +54,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vincentlarkin.mentzertracker.novanotes.NovaHomeScreen
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 enum class NovaTab {
     LOG, PROGRESS, SETTINGS
@@ -83,9 +80,10 @@ fun NovaAppShell(
     
     val logEntries = remember {
         mutableStateListOf<WorkoutLogEntry>().apply {
-            addAll(loadWorkoutLogs(context))
+            addAll(sortWorkoutLogs(loadWorkoutLogs(context)))
         }
     }
+    val logEntriesSnapshot = logEntries.toList()
     
     // Use MaterialTheme colors
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -115,31 +113,33 @@ fun NovaAppShell(
                     NovaTab.LOG -> {
                         NovaHomeScreen(
                             customExercises = config.customExercises,
-                            recentLogs = logEntries.toList(),
+                            recentLogs = logEntriesSnapshot,
                             inputText = logDraftText,
                             onInputTextChange = { logDraftText = it },
-                            onSave = { sets, notes, templateId ->
+                            onSave = { sets, notes, templateId, workoutDate ->
                                 val entry = WorkoutLogEntry(
                                     id = System.currentTimeMillis(),
                                     templateId = templateId,
-                                    date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                        .format(Date()),
+                                    date = workoutDate,
                                     sets = sets,
                                     notes = notes?.takeIf { it.isNotBlank() }
                                 )
-                                logEntries.add(entry)
-                                saveWorkoutLogs(context, logEntries)
+                                val updatedLogs = sortWorkoutLogs(logEntries + entry)
+                                logEntries.clear()
+                                logEntries.addAll(updatedLogs)
+                                saveWorkoutLogs(context, updatedLogs)
                             }
                         )
                     }
                     NovaTab.PROGRESS -> {
                         NovaProgressScreen(
-                            logs = logEntries,
+                            logs = logEntriesSnapshot,
                             exercises = combinedExercises,
                             onUpdateLogs = { newLogs ->
+                                val sortedLogs = sortWorkoutLogs(newLogs)
                                 logEntries.clear()
-                                logEntries.addAll(newLogs)
-                                saveWorkoutLogs(context, logEntries)
+                                logEntries.addAll(sortedLogs)
+                                saveWorkoutLogs(context, sortedLogs)
                             }
                         )
                     }

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 2.5.1 - 2026-04-17
+
+- Fixed workout date editing so selected dates stay on the exact day the user picked.
+- Fixed schedule freshness so overdue status follows the latest logged workout date, not insertion order.
+- Added backlog date selection to the main logging screen, defaulting to today.
+- Cleaned up corrupted UI text in progress, logging, and shortcut surfaces.
+- Improved log refresh behavior after edits and sorted backfilled saves more consistently.
+- Bumped app version:
+  - `versionCode`: 11
+  - `versionName`: `2.5.1`
+
 ## 2.5 - 2026-03-13
 
 - Added a much larger built-in exercise catalog, with expanded ab/core coverage and more machine options.

@@ -405,7 +405,7 @@ private fun ParsedResultsCard(
                         .padding(12.dp)
                 ) {
                     Text(
-                        "âš ",
+                        "!",
                         fontSize = 14.sp
                     )
                     Spacer(Modifier.width(8.dp))

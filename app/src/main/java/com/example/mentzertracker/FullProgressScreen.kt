@@ -21,16 +21,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
@@ -46,8 +42,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 // UI model used only on the full-screen screen
 data class EditableEntryUi(
@@ -358,7 +352,7 @@ fun FullProgressScreen(
             text = {
                 Text(
                     "Remove the entry on ${entryToDelete.date.value} " +
-                            "(${entryToDelete.weight.value} lbs × ${entryToDelete.reps.value} reps)?"
+                            "(${entryToDelete.weight.value} lbs x ${entryToDelete.reps.value} reps)?"
                 )
             },
             confirmButton = {
@@ -391,47 +385,21 @@ fun FullProgressScreen(
 
 /**
  * Read-only text field that opens a native DatePicker dialog.
- * No keyboard, just tap → pick date.
+ * No keyboard, just tap to pick a date.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DateTextField(
     dateState: MutableState<String>,
     modifier: Modifier = Modifier
 ) {
-    val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val showPicker = remember { mutableStateOf(false) }
 
-    val datePickerState = rememberDatePickerState()
-
     if (showPicker.value) {
-        DatePickerDialog(
-            onDismissRequest = { showPicker.value = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val millis = datePickerState.selectedDateMillis
-                        if (millis != null) {
-                            dateState.value = formatter.format(millis)
-                        }
-                        showPicker.value = false
-                        },
-                        shape = RectangleShape
-                ) {
-                    Text("OK")
-                }
-            },
-            dismissButton = {
-                    TextButton(
-                    onClick = { showPicker.value = false },
-                        shape = RectangleShape
-                    ) {
-                    Text("Cancel")
-                }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
+        WorkoutDatePickerDialog(
+            initialDate = dateState.value,
+            onDateSelected = { dateState.value = it },
+            onDismiss = { showPicker.value = false }
+        )
     }
 
     val interactionSource = remember { MutableInteractionSource() }
@@ -449,11 +417,8 @@ fun DateTextField(
 
         // Transparent overlay that actually handles taps
         Box(
-            // The 'matchParentSize' modifier is an extension on BoxScope,
-            // which is the context provided by the parent Box.
-            // This should now resolve correctly.
             modifier = Modifier
-                .matchParentSize() // This line was causing the error
+                .matchParentSize()
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null
@@ -546,9 +511,5 @@ fun deleteEntryFromLogs(
 }
 
 private fun parseIsoDateMillis(date: String): Long? {
-    return try {
-        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)?.time
-    } catch (_: Exception) {
-        null
-    }
+    return parseWorkoutLocalDate(date)?.toEpochDay()
 }

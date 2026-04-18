@@ -82,15 +82,18 @@ import com.vincentlarkin.mentzertracker.ExerciseSetEntry
 import com.vincentlarkin.mentzertracker.NotificationHelper
 import com.vincentlarkin.mentzertracker.NotificationSettingsDialog
 import com.vincentlarkin.mentzertracker.WorkoutLogEntry
+import com.vincentlarkin.mentzertracker.WorkoutDatePickerDialog
 import com.vincentlarkin.mentzertracker.allExercises
+import com.vincentlarkin.mentzertracker.currentWorkoutDate
+import com.vincentlarkin.mentzertracker.formatWorkoutDateLabel
 import com.vincentlarkin.mentzertracker.isCardio
 import com.vincentlarkin.mentzertracker.loadWorkoutInterval
+import com.vincentlarkin.mentzertracker.parseWorkoutLocalDate
 import com.vincentlarkin.mentzertracker.saveWorkoutInterval
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Calendar
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 @Composable
 fun NovaHomeScreen(
@@ -98,7 +101,7 @@ fun NovaHomeScreen(
     recentLogs: List<WorkoutLogEntry>,
     inputText: String,
     onInputTextChange: (String) -> Unit,
-    onSave: (List<ExerciseSetEntry>, String?, String) -> Unit, // Added templateId parameter
+    onSave: (List<ExerciseSetEntry>, String?, String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Build exercise lookup
@@ -111,6 +114,8 @@ fun NovaHomeScreen(
     var showSuccess by remember { mutableStateOf(false) }
     var showExamplesPopup by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
+    var showEntryDatePicker by remember { mutableStateOf(false) }
+    var entryDate by remember { mutableStateOf(currentWorkoutDate()) }
     val focusRequester = remember { FocusRequester() }
 
     // Load workout interval preference (separate from notifications)
@@ -138,7 +143,10 @@ fun NovaHomeScreen(
 
     // Track the most recent workout
     val lastWorkout = remember(recentLogs) {
-        recentLogs.maxByOrNull { it.id } // Most recent by timestamp
+        recentLogs.maxWithOrNull(
+            compareBy<WorkoutLogEntry> { parseWorkoutLocalDate(it.date) ?: LocalDate.MIN }
+                .thenBy { it.id }
+        )
     }
 
     val todayTemplateId = "TODAY"
@@ -277,7 +285,7 @@ fun NovaHomeScreen(
                         onClick = {
                             if (hasValidSets && parseResult != null) {
                                 val sets = WorkoutParser.toSetEntries(parseResult!!.parsedExercises)
-                                onSave(sets, null, todayTemplateId)
+                                onSave(sets, null, todayTemplateId, entryDate)
                                 showSuccess = true
                                 onInputTextChange("")
                             }
@@ -314,6 +322,20 @@ fun NovaHomeScreen(
                 surfaceColor = surfaceColor,
                 primaryColor = primaryColor,
                 outlineColor = outlineColor,
+                textColor = onSurfaceColor,
+                secondaryColor = onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            EntryDateChip(
+                date = entryDate,
+                onClick = { showEntryDatePicker = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                surfaceColor = surfaceVariant,
+                primaryColor = primaryColor,
                 textColor = onSurfaceColor,
                 secondaryColor = onSurfaceVariant
             )
@@ -498,6 +520,70 @@ fun NovaHomeScreen(
                 onDismiss = { showNotificationDialog = false }
             )
         }
+
+        if (showEntryDatePicker) {
+            WorkoutDatePickerDialog(
+                initialDate = entryDate,
+                onDateSelected = { entryDate = it },
+                onDismiss = { showEntryDatePicker = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EntryDateChip(
+    date: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    surfaceColor: Color,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryColor: Color
+) {
+    val isToday = date == currentWorkoutDate()
+    val value = if (isToday) {
+        "Today"
+    } else {
+        formatWorkoutDateLabel(date, "MMM d, yyyy")
+    }
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.End
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(surfaceColor.copy(alpha = 0.7f))
+                .clickable { onClick() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "Date",
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = secondaryColor
+                )
+            )
+            Text(
+                value,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isToday) textColor else primaryColor
+                )
+            )
+            Icon(
+                Icons.Default.ExpandMore,
+                contentDescription = "Change log date",
+                tint = secondaryColor,
+                modifier = Modifier.size(14.dp)
+            )
+        }
     }
 }
 
@@ -516,34 +602,22 @@ private fun ScheduleCard(
     secondaryColor: Color
 ) {
     val showIntervalPickerState = remember { mutableStateOf(false) }
-    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
-    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
 
     fun formatDate(dateStr: String?): String {
         if (dateStr == null) return "No workouts yet"
-        return try {
-            val date = inputFormatter.parse(dateStr)
-            date?.let { dateFormatter.format(it) } ?: dateStr
-        } catch (_: Exception) {
-            dateStr
-        }
+        return formatWorkoutDateLabel(dateStr, "MMM d")
     }
 
     fun daysAgo(dateStr: String?): String {
         if (dateStr == null) return ""
-        return try {
-            val date = inputFormatter.parse(dateStr) ?: return ""
-            val now = Calendar.getInstance().time
-            val diff = now.time - date.time
-            val days = TimeUnit.MILLISECONDS.toDays(diff)
-            when {
-                days == 0L -> "today"
-                days == 1L -> "yesterday"
-                days < 7 -> "$days days ago"
-                else -> "${days / 7}w ago"
-            }
-        } catch (_: Exception) {
-            ""
+        val date = parseWorkoutLocalDate(dateStr) ?: return ""
+        val days = ChronoUnit.DAYS.between(date, LocalDate.now())
+        return when {
+            days < 0 -> "in ${kotlin.math.abs(days)} day" + if (days == -1L) "" else "s"
+            days == 0L -> "today"
+            days == 1L -> "yesterday"
+            days < 7L -> "$days days ago"
+            else -> "${days / 7}w ago"
         }
     }
 
@@ -552,34 +626,29 @@ private fun ScheduleCard(
         if (lastWorkout == null) {
             "Ready to start!" to "Anytime"
         } else {
-            try {
-                val lastDate = inputFormatter.parse(lastWorkout.date) ?: return@remember "Time to train" to "Soon"
-                val calendar = Calendar.getInstance().apply {
-                    time = lastDate
-                    add(Calendar.DAY_OF_YEAR, workoutIntervalDays)
-                }
-                val nextDate = calendar.time
-                val now = Calendar.getInstance().time
-                val daysUntil = TimeUnit.MILLISECONDS.toDays(nextDate.time - now.time)
+            val lastDate = parseWorkoutLocalDate(lastWorkout.date)
+            if (lastDate == null) {
+                "Time to train" to "Soon"
+            } else {
+                val nextDate = lastDate.plusDays(workoutIntervalDays.toLong())
+                val daysUntil = ChronoUnit.DAYS.between(LocalDate.now(), nextDate)
 
                 val hint = when {
                     daysUntil < 0 -> "Time to train!"
                     daysUntil == 0L -> "Workout day!"
                     daysUntil == 1L -> "Workout tomorrow"
-                    daysUntil <= 2 -> "Rest day"
-                    else -> "Rest â€¢ ${daysUntil}d until next"
+                    daysUntil <= 2L -> "Rest day"
+                    else -> "Rest - ${daysUntil}d until next"
                 }
 
                 val dateLabel = when {
                     daysUntil < 0 -> "Overdue"
                     daysUntil == 0L -> "Today"
                     daysUntil == 1L -> "Tomorrow"
-                    else -> dateFormatter.format(nextDate)
+                    else -> formatWorkoutDateLabel(nextDate.toString(), "MMM d")
                 }
 
                 hint to dateLabel
-            } catch (_: Exception) {
-                "Time to train" to "Soon"
             }
         }
     }
@@ -705,7 +774,7 @@ private fun ScheduleCard(
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
-                    "â†’ ${nextWorkoutStatus.first}",
+                    "-> ${nextWorkoutStatus.first}",
                     style = TextStyle(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1320,7 +1389,7 @@ private fun ExamplesPopup(
             ) {
                 Column {
                     Text(
-                        "ðŸ’¡ Shortcuts",
+                        "Shortcuts",
                         style = TextStyle(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1329,7 +1398,7 @@ private fun ExamplesPopup(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "dl -> Deadlift ï¿½ ohp -> Overhead Press ï¿½ tread -> Treadmill ï¿½ ellip -> Elliptical",
+                        "dl -> Deadlift | ohp -> Overhead Press | tread -> Treadmill | ellip -> Elliptical",
                         style = TextStyle(
                             fontSize = 12.sp,
                             color = secondaryTextColor,

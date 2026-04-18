@@ -29,13 +29,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -347,8 +344,8 @@ fun NovaProgressScreen(
                     ) {
                         Text(
                             when (progressViewMode) {
-                                ProgressViewMode.ALL_EXERCISES -> "ðŸ“Š All Exercises"
-                                ProgressViewMode.BY_DATE -> "ðŸ—“ See By Date"
+                                ProgressViewMode.ALL_EXERCISES -> "All Exercises"
+                                ProgressViewMode.BY_DATE -> "By Date"
                                 ProgressViewMode.SINGLE_EXERCISE -> selectedExercise?.name ?: "Select exercise"
                             },
                             style = TextStyle(
@@ -857,7 +854,7 @@ fun NovaProgressScreen(
                     val newReps = editReps.toIntOrNull()
 
                     if (newWeight != null && newReps != null) {
-                        val updatedLogs = logs.map { log ->
+                        val updatedLogs = sortWorkoutLogs(logs.map { log ->
                             if (log.id == session.logId) {
                                 val updatedSets = log.sets.mapIndexed { idx, set ->
                                     if (idx == session.setIndex && set.exerciseId == session.exerciseId) {
@@ -866,7 +863,7 @@ fun NovaProgressScreen(
                                 }
                                 log.copy(date = editDate, sets = updatedSets)
                             } else log
-                        }
+                        })
                         onUpdateLogs(updatedLogs)
                     }
                     editingSession = null
@@ -879,53 +876,12 @@ fun NovaProgressScreen(
 
         // Date picker dialog
         if (showDatePicker) {
-            DatePickerDialogWrapper(
+            WorkoutDatePickerDialog(
                 initialDate = editDate,
                 onDateSelected = { editDate = it },
                 onDismiss = { showDatePicker = false }
             )
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DatePickerDialogWrapper(
-    initialDate: String,
-    onDateSelected: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val formatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    val initialMillis = try {
-        formatter.parse(initialDate)?.time
-    } catch (_: Exception) {
-        null
-    }
-
-    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val millis = datePickerState.selectedDateMillis
-                    if (millis != null) {
-                        onDateSelected(formatter.format(Date(millis)))
-                    }
-                    onDismiss()
-                }
-            ) {
-                Text("OK")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    ) {
-        DatePicker(state = datePickerState)
     }
 }
 
@@ -1032,14 +988,8 @@ private fun SessionRow(
     secondaryColor: Color,
     onClick: (() -> Unit)? = null
 ) {
-    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
-    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-
-    val formattedDate = try {
-        val date = inputFormatter.parse(point.date)
-        date?.let { dateFormatter.format(it) } ?: point.date
-    } catch (_: Exception) {
-        point.date
+    val formattedDate = remember(point.date) {
+        formatWorkoutDateLabel(point.date, "MMM d")
     }
 
     Row(
@@ -1113,13 +1063,8 @@ private fun LatestExerciseRow(
     textColor: Color,
     secondaryColor: Color
 ) {
-    val dateFormatter = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
-    val inputFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
-    val formattedDate = try {
-        val date = inputFormatter.parse(point.date)
-        date?.let { dateFormatter.format(it) } ?: point.date
-    } catch (_: Exception) {
-        point.date
+    val formattedDate = remember(point.date) {
+        formatWorkoutDateLabel(point.date, "MMM d")
     }
 
     Row(
@@ -1845,6 +1790,20 @@ private fun ExercisePickerDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.height(300.dp)
             ) {
+                if ((showAllOption && onAllSelected != null) || (showByDateOption && onByDateSelected != null)) {
+                    item {
+                        Text(
+                            "Views",
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor.copy(alpha = 0.65f)
+                            ),
+                            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                        )
+                    }
+                }
+
                 // "All Exercises" option
                 if (showAllOption && onAllSelected != null) {
                     item {
@@ -1860,7 +1819,7 @@ private fun ExercisePickerDialog(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                "ðŸ“Š All Exercises",
+                                "All Exercises",
                                 style = TextStyle(
                                     fontSize = 15.sp,
                                     fontWeight = if (isAllSelected) FontWeight.SemiBold else FontWeight.Normal,
@@ -1885,12 +1844,38 @@ private fun ExercisePickerDialog(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                "ðŸ—“ See By Date",
+                                "By Date",
                                 style = TextStyle(
                                     fontSize = 15.sp,
                                     fontWeight = if (isByDateSelected) FontWeight.SemiBold else FontWeight.Normal,
                                     color = if (isByDateSelected) primaryColor else textColor
                                 )
+                            )
+                        }
+                    }
+                }
+
+                if (
+                    exercises.isNotEmpty() &&
+                    ((showAllOption && onAllSelected != null) || (showByDateOption && onByDateSelected != null))
+                ) {
+                    item {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            HorizontalDivider(
+                                color = outlineColor.copy(alpha = 0.45f),
+                                thickness = 1.dp
+                            )
+                            Text(
+                                "Exercises",
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textColor.copy(alpha = 0.65f)
+                                ),
+                                modifier = Modifier.padding(start = 4.dp)
                             )
                         }
                     }
@@ -2020,9 +2005,9 @@ private fun buildDailyWorkoutSummaries(
                         "${sets.size} set" + if (sets.size == 1) "" else "s"
                     },
                     summary = if (hasCardio) {
-                        sets.joinToString(" Â· ") { formatExerciseEntrySummary(it, exercise) }
+                        sets.joinToString(" | ") { formatExerciseEntrySummary(it, exercise) }
                     } else {
-                        "Top ${formatCompactWeight(sets.maxOfOrNull { it.weight } ?: 0f)} Â· Best ${sets.maxOfOrNull { it.reps } ?: 0} reps"
+                        "Top ${formatCompactWeight(sets.maxOfOrNull { it.weight } ?: 0f)} | Best ${sets.maxOfOrNull { it.reps } ?: 0} reps"
                     }
                 )
             }.sortedBy { it.exerciseName }
@@ -2100,16 +2085,7 @@ private fun readableExerciseId(exerciseId: String): String {
 }
 
 private fun formatWorkoutDate(dateStr: String): String {
-    return try {
-        val parsedDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
-        if (parsedDate != null) {
-            SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(parsedDate)
-        } else {
-            dateStr
-        }
-    } catch (_: Exception) {
-        dateStr
-    }
+    return formatWorkoutDateLabel(dateStr, "MMM d, yyyy")
 }
 
 private fun formatCompactWeight(weight: Float): String {

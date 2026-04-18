@@ -265,7 +265,7 @@ fun NovaSplashScreen(
                         )
             ) {
                 Text(
-                    text = "Log today’s workout\nwith natural language",
+                    text = "Log today's workout\nwith natural language",
 
                     fontSize = 16.sp,
                     color = onSurfaceVariantColor,
